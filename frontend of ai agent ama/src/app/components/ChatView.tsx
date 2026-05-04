@@ -355,15 +355,15 @@ Always be precise and specific with all factual numerical data.`;
         transition-transform duration-300 ease-in-out
         ${historyOpen ? 'flex translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+        <div className="p-3 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+          <h3 className="font-semibold text-slate-800 flex items-center gap-2 text-sm">
             <MessageSquare className="w-4 h-4" />
             Chat History
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button 
               onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
-              className="text-xs px-2 py-1 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-md font-medium transition-colors"
+              className="text-xs px-2 py-1.5 bg-orange-500 text-white hover:bg-orange-600 rounded-md font-medium transition-colors shadow-sm"
               title="Start a new chat"
             >
               + New
@@ -371,7 +371,8 @@ Always be precise and specific with all factual numerical data.`;
             {/* Close button — mobile only */}
             <button
               onClick={() => setHistoryOpen(false)}
-              className="md:hidden p-1 hover:bg-slate-200 rounded-lg transition-colors text-slate-500"
+              className="md:hidden p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-500"
+              title="Close history panel"
             >
               <X className="w-4 h-4" />
             </button>
@@ -386,29 +387,30 @@ Always be precise and specific with all factual numerical data.`;
                 <div 
                   key={session.id} 
                   onClick={() => { setActiveSessionId(session.id); setHistoryOpen(false); }}
-                  className={`group flex items-center justify-between px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors ${
+                  className={`group flex items-center justify-between px-3 py-2.5 text-sm rounded-lg cursor-pointer transition-colors ${
                     activeSessionId === session.id 
                       ? 'bg-orange-100 text-orange-800' 
-                      : 'text-slate-600 hover:bg-slate-200'
+                      : 'text-slate-600 hover:bg-slate-100 active:bg-slate-200'
                   }`}
                 >
-                  <span className="truncate pr-2">{session.title || 'Chat'}</span>
+                  <span className="truncate pr-2 text-xs md:text-sm">{session.title || 'Chat'}</span>
                   <button
                     onClick={(e) => deleteSession(e, session.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-100 hover:text-red-600 rounded text-slate-400 transition-all focus:opacity-100"
-                    title="Delete Chat"
+                    className="p-1.5 hover:bg-red-100 hover:text-red-600 rounded text-slate-400 transition-all opacity-60 md:opacity-0 md:group-hover:opacity-100"
+                    title="Delete chat"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))}
-              <div className="pt-4 pb-2 px-2 border-t border-slate-200 mt-4">
+              <div className="pt-3 pb-2 px-2 border-t border-slate-200 mt-4">
                 <button
                   onClick={clearAllSessions}
-                  className="w-full py-2 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 font-medium"
+                  className="w-full py-2 px-2 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 font-medium"
+                  title="Clear all chat history"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Clear All History
+                  Clear All
                 </button>
               </div>
             </>
@@ -418,20 +420,23 @@ Always be precise and specific with all factual numerical data.`;
 
       {/* ── Main Chat Area ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full relative min-w-0">
-        {/* Mobile top bar — history toggle */}
-        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-white flex-shrink-0">
+        {/* Mobile top bar — history toggle with hamburger menu */}
+        <div className="md:hidden flex items-center gap-2 px-2 py-2 border-b border-slate-100 bg-white flex-shrink-0 shadow-sm">
           <button
             onClick={() => setHistoryOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 text-sm font-medium transition-colors"
+            className="flex items-center justify-center gap-1 px-2.5 py-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+            title="Show chat history"
           >
-            <Menu className="w-4 h-4" />
-            History
+            <Menu className="w-5 h-5" />
+            <span className="text-xs font-semibold hidden sm:inline">History</span>
           </button>
+          <div className="flex-1" />
           <button
-            onClick={() => { setActiveSessionId(null); }}
-            className="ml-auto text-xs px-3 py-1.5 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-lg font-medium transition-colors"
+            onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
+            className="text-xs px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium transition-colors shadow-sm"
+            title="Start a new chat"
           >
-            + New Chat
+            + New
           </button>
         </div>
         {messages.length === 0 ? (
