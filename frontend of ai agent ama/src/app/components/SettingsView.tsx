@@ -8,6 +8,7 @@ import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE } from '../utils/config';
 
 // ── Toggle switch component ─────────────────────────────────────────────────
 function Toggle({
@@ -94,7 +95,7 @@ export function SettingsView() {
 
   const handleConnectGmail = async () => {
     try {
-      const res = await fetch(`http://localhost:5000/api/gmail/auth`);
+      const res = await fetch(`${API_BASE}/api/gmail/auth`);
       const data = await res.json();
       if (data.url) {
         showToast('Opening Google sign-in…', 'info');

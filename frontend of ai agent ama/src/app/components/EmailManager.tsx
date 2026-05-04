@@ -7,7 +7,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
-const API = 'http://localhost:5000';
+import { API_BASE as API } from '../utils/config';
 
 interface GmailMessage {
   id: string;

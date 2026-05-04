@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useSettings } from '../context/SettingsContext';
+import { API_BASE } from '../utils/config';
 
 export function QuickAskWidget() {
   const [isLoading, setIsLoading] = useState(false);
@@ -95,7 +96,7 @@ In addition to managing tasks, you are fully capable of answering general or out
 
     try {
       const token = localStorage.getItem('authToken');
-      const res = await fetch('http://localhost:5000/api/ama/chat', {
+      const res = await fetch(`${API_BASE}/api/ama/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

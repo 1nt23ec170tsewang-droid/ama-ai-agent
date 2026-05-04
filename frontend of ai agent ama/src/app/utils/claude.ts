@@ -1,10 +1,9 @@
 /**
  * Shared Claude API utility.
- * Routes all Claude calls through the existing backend at http://localhost:5000
- * to avoid exposing API keys in the browser.
+ * Routes all Claude calls through the backend (env var in prod, localhost in dev).
  */
 
-const BACKEND = 'http://localhost:5000';
+const BACKEND = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
 export interface ClaudeMessage {
   role: 'user' | 'assistant';

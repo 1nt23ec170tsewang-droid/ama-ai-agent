@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { Mail, Lock, User, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
+import { API_BASE } from '../utils/config';
 
 export default function Register() {
   const [name, setName] = useState('');
@@ -21,7 +22,7 @@ export default function Register() {
   const handleConnectGmail = async () => {
     setConnectingGmail(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/gmail/auth?login_hint=${encodeURIComponent(pendingEmail)}`);
+      const res = await fetch(`${API_BASE}/api/gmail/auth?login_hint=${encodeURIComponent(pendingEmail)}`);
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -58,7 +59,7 @@ export default function Register() {
     if (result.success) {
       if (email.toLowerCase().endsWith('@gmail.com')) {
         try {
-          const statusRes = await fetch(`http://localhost:5000/api/gmail/status?email=${encodeURIComponent(email)}`);
+          const statusRes = await fetch(`${API_BASE}/api/gmail/status?email=${encodeURIComponent(email)}`);
           const statusData = await statusRes.json();
           if (!statusData.connected) {
             setPendingEmail(email);

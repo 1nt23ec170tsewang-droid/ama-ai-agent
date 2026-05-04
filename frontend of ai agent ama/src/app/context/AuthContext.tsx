@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
 interface User {
   id?: string;

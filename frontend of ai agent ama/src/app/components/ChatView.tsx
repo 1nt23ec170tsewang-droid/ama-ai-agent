@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useSettings } from '../context/SettingsContext';
 import { useEffect } from 'react';
+import { API_BASE } from '../utils/config';
 
 const SUGGESTION_CHIPS = [
   { id: '1', icon: Calendar,       label: 'Schedule a meeting',      prompt: 'Help me schedule a team meeting for next week. What should I consider?' },
@@ -196,7 +197,7 @@ In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of
 
     try {
       const token = localStorage.getItem('authToken');
-      const res = await fetch('http://localhost:5000/api/ama/chat', {
+      const res = await fetch(`${API_BASE}/api/ama/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -274,7 +275,7 @@ In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of
       const msg = err?.message || 'Network error';
       const errorHistory = [...history, {
         role: 'assistant',
-        content: '⚠️ Could not reach the backend at http://localhost:5000. Make sure it is running with: node index.js',
+        content: '⚠️ Could not reach the backend. Make sure it is running.',
       }];
       updateSessionMessages(currentId as string, errorHistory, userText || 'New Chat');
       showToast(`Connection failed: ${msg}`, 'error');
