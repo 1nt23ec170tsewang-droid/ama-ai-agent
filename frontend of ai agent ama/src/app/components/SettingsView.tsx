@@ -77,6 +77,8 @@ export function SettingsView() {
     aiSettings, updateAISettings,
     appearance, updateAppearance,
     security, updateSecurity,
+    privacy, updatePrivacy,
+    clearAllHistory,
   } = useSettings();
 
   const { showToast } = useToast();
@@ -531,18 +533,49 @@ export function SettingsView() {
             </div>
             <div className="space-y-3">
               {([
-                { label: 'Two-factor authentication', key: 'twoFactor' },
-                { label: 'Session timeout', key: 'sessionTimeout' },
-              ] as const).map(({ label, key }) => (
+                { label: 'Two-factor authentication', key: 'twoFactor', type: 'security' },
+                { label: 'Session timeout', key: 'sessionTimeout', type: 'security' },
+              ] as const).map(({ label, key, type }) => (
                 <div key={key} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-lg">
                   <span className="text-sm text-slate-700 dark:text-slate-200">{label}</span>
                   <Toggle
                     id={`sec-${key}`}
-                    checked={security[key]}
-                    onChange={v => updateSecurity({ [key]: v })}
+                    checked={type === 'security' ? security[key] : false}
+                    onChange={v => type === 'security' ? updateSecurity({ [key]: v }) : null}
                   />
                 </div>
               ))}
+              <div className="border-t border-slate-200 dark:border-slate-600 pt-3 mt-3">
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Chat History Privacy</p>
+                {([
+                  { label: 'Incognito Mode', key: 'incognitoMode', desc: 'No chat history saved' },
+                  { label: 'Hide History', key: 'hideHistory', desc: 'History stored but hidden' },
+                  { label: 'Auto-delete History', key: 'autoDeleteHistory', desc: 'Clear after each session' },
+                ] as const).map(({ label, key, desc }) => (
+                  <div key={key} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-lg mb-2">
+                    <div>
+                      <span className="text-sm text-slate-700 dark:text-slate-200 font-medium block">{label}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{desc}</span>
+                    </div>
+                    <Toggle
+                      id={`priv-${key}`}
+                      checked={privacy[key]}
+                      onChange={v => updatePrivacy({ [key]: v })}
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    if (window.confirm('Permanently delete all chat history?')) {
+                      clearAllHistory();
+                      showToast('All chat history deleted', 'success');
+                    }
+                  }}
+                  className="w-full mt-3 py-2 px-4 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors border border-red-200 dark:border-red-900/30"
+                >
+                  Clear All History Permanently
+                </button>
+              </div>
             </div>
           </div>
 

@@ -34,6 +34,12 @@ export interface SecuritySettings {
   sessionTimeout: boolean;
 }
 
+export interface PrivacySettings {
+  hideHistory: boolean;
+  autoDeleteHistory: boolean;
+  incognitoMode: boolean;
+}
+
 interface SettingsContextType {
   profile: ProfileData;
   updateProfile: (data: Partial<ProfileData>) => void;
@@ -45,6 +51,9 @@ interface SettingsContextType {
   updateAppearance: (data: Partial<AppearanceSettings>) => void;
   security: SecuritySettings;
   updateSecurity: (data: Partial<SecuritySettings>) => void;
+  privacy: PrivacySettings;
+  updatePrivacy: (data: Partial<PrivacySettings>) => void;
+  clearAllHistory: () => void;
   isDark: boolean;
 }
 
@@ -108,6 +117,14 @@ export function SettingsProvider({ children, userEmail, userName }: {
     })
   );
 
+  const [privacy, setPrivacy] = useState<PrivacySettings>(() =>
+    load('ama_privacy', {
+      hideHistory: false,
+      autoDeleteHistory: false,
+      incognitoMode: false,
+    })
+  );
+
   // Seed name/email from auth on first load only (don't overwrite saved profile)
   useEffect(() => {
     setProfile(prev => ({
@@ -124,6 +141,7 @@ export function SettingsProvider({ children, userEmail, userName }: {
   useEffect(() => { save('ama_ai_settings', aiSettings); }, [aiSettings]);
   useEffect(() => { save('ama_appearance', appearance); }, [appearance]);
   useEffect(() => { save('ama_security', security); }, [security]);
+  useEffect(() => { save('ama_privacy', privacy); }, [privacy]);
 
   // ── Dark mode: apply class to <html> ────────────────────────────────────────
   const isDark = appearance.theme === 'dark' ||
@@ -160,6 +178,13 @@ export function SettingsProvider({ children, userEmail, userName }: {
   const updateSecurity = useCallback((data: Partial<SecuritySettings>) => {
     setSecurity(prev => ({ ...prev, ...data }));
   }, []);
+  const updatePrivacy = useCallback((data: Partial<PrivacySettings>) => {
+    setPrivacy(prev => ({ ...prev, ...data }));
+  }, []);
+  const clearAllHistory = useCallback(() => {
+    localStorage.removeItem('ama_chat_sessions');
+    window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+  }, []);
 
   return (
     <SettingsContext.Provider value={{
@@ -168,6 +193,8 @@ export function SettingsProvider({ children, userEmail, userName }: {
       aiSettings, updateAISettings,
       appearance, updateAppearance,
       security, updateSecurity,
+      privacy, updatePrivacy,
+      clearAllHistory,
       isDark,
     }}>
       {children}

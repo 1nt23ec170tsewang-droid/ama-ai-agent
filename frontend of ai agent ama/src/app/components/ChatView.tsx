@@ -21,10 +21,11 @@ const SUGGESTION_CHIPS = [
 export function ChatView() {
   const { tasks, events, team, addTask, addEvent, addTeamMember } = useApp();
   const { user } = useAuth();
-  const { profile, aiSettings } = useSettings();
+  const { profile, aiSettings, privacy, clearAllHistory } = useSettings();
   const { showToast, removeToast } = useToast();
 
   const [sessions, setSessions] = useState<{id: string, title: string, messages: any[]}[]>(() => {
+    if (privacy?.incognitoMode) return [];
     const saved = localStorage.getItem('ama_chat_sessions');
     if (saved) return JSON.parse(saved);
     const old = localStorage.getItem('ama_chat_history');
@@ -63,6 +64,7 @@ export function ChatView() {
     }));
     
     setSessions(prev => {
+      if (privacy?.incognitoMode) return prev;
       let exists = prev.some(s => s.id === sessionId);
       let updated;
       if (exists) {
@@ -173,7 +175,12 @@ If the user asks you to add or invite a team member, you MUST include this EXACT
 }
 \`\`\`
 
-In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of-the-box or general knowledge questions the user asks. Provide fast, highly accurate, and direct answers to any non-work related questions to ensure a seamless conversational experience. Keep standard responses under 200 words unless asked for more details.`;
+In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of-the-box or general knowledge questions the user asks. Provide fast, highly accurate, and direct answers to any non-work related questions to ensure a seamless conversational experience. Keep standard responses under 200 words unless asked for more details.
+
+CRITICAL - NUMERICAL ACCURACY: When providing numerical answers (weather temperatures, measurements, statistics, percentages, etc.), ALWAYS provide EXACT values, never ranges. Examples:
+- ✓ CORRECT: "The temperature in London is 8°C" or "Humidity is 65%"
+- ✗ WRONG: "The temperature in London is between 5-10°C" or "Around 60-70% humidity"
+Always be precise and specific with all factual numerical data.`;
   };
 
   const sendMessage = async (userText: string, files?: File[]) => {
