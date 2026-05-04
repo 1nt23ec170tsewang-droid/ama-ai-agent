@@ -4,7 +4,7 @@ const { google } = require('googleapis');
 
 const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || 'http://localhost:5000/api/gmail/callback';
+const REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || 'https://ama-ai-agent-toxa.vercel.app/api/gmail/callback';
 const FRONTEND_URL  = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // In-memory token store (keyed by state token → user session)

@@ -3,7 +3,7 @@
  * Routes all Claude calls through the backend (env var in prod, localhost in dev).
  */
 
-const BACKEND = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+const BACKEND = (import.meta as any).env?.VITE_API_URL || 'https://ama-ai-agent-toxa.vercel.app';
 
 export interface ClaudeMessage {
   role: 'user' | 'assistant';
