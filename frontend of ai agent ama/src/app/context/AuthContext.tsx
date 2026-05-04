@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://ama-ai-agent-toxa.vercel.app';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
 interface User {
   id?: string;
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email: email.toLowerCase().trim(), password }),
       });
       const data = await res.json();
       if (!res.ok) return { success: false, error: data.message || 'Registration failed' };
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
       });
       const data = await res.json();
 

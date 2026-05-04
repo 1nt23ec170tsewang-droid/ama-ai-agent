@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import {
   Send, Sparkles, Calendar, Mail, CheckSquare, Bell,
-  Paperclip, X, FileText, Image as ImageIcon, Users, MessageSquare, Trash2, Mic
+  Paperclip, X, FileText, Image as ImageIcon, Users, MessageSquare, Trash2, Mic, Menu
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -53,6 +53,7 @@ export function ChatView() {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateSessionMessages = (sessionId: string, newHistory: any[], sessionTitle: string) => {
@@ -329,21 +330,45 @@ In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of
   };
 
   return (
-    <div className="flex h-full bg-white">
-      {/* History Sidebar */}
-      <div className="w-64 border-r border-slate-200 bg-slate-50 hidden md:flex flex-col">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+    <div className="flex h-full bg-white relative overflow-hidden">
+
+      {/* ── Mobile overlay backdrop ────────────────────────────────────── */}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setHistoryOpen(false)}
+        />
+      )}
+
+      {/* ── History Sidebar (desktop: always visible | mobile: drawer) ── */}
+      <div className={`
+        flex-col bg-slate-50 border-r border-slate-200
+        md:flex md:relative md:translate-x-0 md:w-64
+        fixed inset-y-0 left-0 z-50 w-72
+        transition-transform duration-300 ease-in-out
+        ${historyOpen ? 'flex translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <MessageSquare className="w-4 h-4" />
             Chat History
           </h3>
-          <button 
-            onClick={() => setActiveSessionId(null)}
-            className="text-xs px-2 py-1 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-md font-medium transition-colors"
-            title="Start a new chat"
-          >
-            + New Chat
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
+              className="text-xs px-2 py-1 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-md font-medium transition-colors"
+              title="Start a new chat"
+            >
+              + New
+            </button>
+            {/* Close button — mobile only */}
+            <button
+              onClick={() => setHistoryOpen(false)}
+              className="md:hidden p-1 hover:bg-slate-200 rounded-lg transition-colors text-slate-500"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {sessions.length === 0 ? (
@@ -353,7 +378,7 @@ In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of
               {sessions.map((session) => (
                 <div 
                   key={session.id} 
-                  onClick={() => setActiveSessionId(session.id)}
+                  onClick={() => { setActiveSessionId(session.id); setHistoryOpen(false); }}
                   className={`group flex items-center justify-between px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors ${
                     activeSessionId === session.id 
                       ? 'bg-orange-100 text-orange-800' 
@@ -384,8 +409,24 @@ In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of
         </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col h-full relative">
+      {/* ── Main Chat Area ─────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col h-full relative min-w-0">
+        {/* Mobile top bar — history toggle */}
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-white flex-shrink-0">
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 text-sm font-medium transition-colors"
+          >
+            <Menu className="w-4 h-4" />
+            History
+          </button>
+          <button
+            onClick={() => { setActiveSessionId(null); }}
+            className="ml-auto text-xs px-3 py-1.5 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-lg font-medium transition-colors"
+          >
+            + New Chat
+          </button>
+        </div>
         {messages.length === 0 ? (
         <>
           {/* Welcome Screen */}

@@ -207,7 +207,8 @@ app.get('/health', (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, company, role } = req.body;
+    const { name, password, company, role } = req.body;
+    const email = (req.body.email || '').toLowerCase().trim();
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email and password are required.' });
     }
@@ -221,6 +222,7 @@ app.post('/api/auth/register', async (req, res) => {
       if (!existing.empty) return res.status(400).json({ message: 'User already exists.' });
 
       await db.collection('users').doc(userData.id).set({ ...userData, password: hashedPassword });
+      console.log(`✅ Registered user: ${email}`);
     } else {
       // In-memory fallback
       if (inMemoryUsers.find(u => u.email === email)) {
@@ -239,7 +241,8 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = (req.body.email || '').toLowerCase().trim();
     if (!email || !password) return res.status(400).json({ message: 'Email and password required.' });
 
     let foundUser = null;
@@ -251,16 +254,23 @@ app.post('/api/auth/login', async (req, res) => {
       foundUser = inMemoryUsers.find(u => u.email === email);
     }
 
-    if (!foundUser) return res.status(400).json({ message: 'Invalid credentials.' });
+    if (!foundUser) {
+      console.warn(`⚠️ Login failed — user not found: ${email}`);
+      return res.status(400).json({ message: 'No account found with this email. Please register first.' });
+    }
 
     const isMatch = await bcrypt.compare(password, foundUser.password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials.' });
+    if (!isMatch) {
+      console.warn(`⚠️ Login failed — wrong password for: ${email}`);
+      return res.status(400).json({ message: 'Incorrect password. Please try again.' });
+    }
 
     // Update last login
     if (db) {
       await db.collection('users').doc(foundUser.id).update({ lastLogin: new Date().toISOString() });
     }
 
+    console.log(`✅ Login success: ${email}`);
     const token = jwt.sign(
       { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
       SECRET_KEY,
