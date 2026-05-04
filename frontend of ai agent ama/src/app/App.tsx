@@ -48,7 +48,7 @@ export default function App() {
   const renderView = () => {
     switch (activeView) {
       case 'briefing':  return <MorningBriefing />;
-      case 'chat':      return <ChatView />;
+      case 'chat':      return <ChatView sidebarOpen={sidebarOpen} onCloseSidebar={() => setSidebarOpen(false)} />;
       case 'email':     return <EmailManager />;
       case 'tasks':     return <TasksView />;
       case 'calendar':  return <CalendarView />;

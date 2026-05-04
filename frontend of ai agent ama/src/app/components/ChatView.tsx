@@ -18,7 +18,7 @@ const SUGGESTION_CHIPS = [
   { id: '5', icon: MessageSquare,  label: 'Write a status update',    prompt: 'Help me write a concise weekly status update for my team.' },
   { id: '6', icon: Bell,           label: 'Prioritize my day',        prompt: 'Based on my current workload, how should I prioritize my tasks today?' },
 ];
-export function ChatView() {
+export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolean; onCloseSidebar?: () => void }) {
   const { tasks, events, team, addTask, addEvent, addTeamMember } = useApp();
   const { user } = useAuth();
   const { profile, aiSettings, privacy, clearAllHistory } = useSettings();
@@ -317,7 +317,10 @@ Always be precise and specific with all factual numerical data.`;
   };
 
   useEffect(() => {
-    const handleSelect = (e: any) => {
+    if (sidebarOpen) {
+      setHistoryOpen(false);
+    }
+  }, [sidebarOpen]);
       setActiveSessionId(e.detail);
     };
     window.addEventListener('select_chat_session', handleSelect);
@@ -342,7 +345,7 @@ Always be precise and specific with all factual numerical data.`;
       {/* ── Mobile overlay backdrop ────────────────────────────────────── */}
       {historyOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
           onClick={() => setHistoryOpen(false)}
         />
       )}
@@ -351,7 +354,7 @@ Always be precise and specific with all factual numerical data.`;
       <div className={`
         flex-col bg-slate-50 border-r border-slate-200
         md:flex md:relative md:translate-x-0 md:w-64
-        fixed inset-y-0 left-0 z-50 w-72
+        fixed inset-y-0 left-0 z-30 w-72
         transition-transform duration-300 ease-in-out
         ${historyOpen ? 'flex translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
