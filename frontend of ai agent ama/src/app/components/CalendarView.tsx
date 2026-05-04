@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Video, MapPin, Users, Plus, Edit2, Trash2, X, Calendar } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { useToast } from '../context/ToastContext';
 
 const getMonthDates = (offset = 0) => {
   const today = new Date();
@@ -33,7 +32,6 @@ const EMPTY_FORM = {
 
 export function CalendarView() {
   const { events, addEvent, updateEvent, deleteEvent } = useApp();
-  const { showToast } = useToast();
 
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -95,15 +93,15 @@ export function CalendarView() {
 
   const handleSave = () => {
     if (!form.title.trim()) {
-      showToast('Title is required', 'error');
+      // showToast('Title is required', 'error');
       return;
     }
     if (editingId) {
       updateEvent(editingId, { ...form });
-      showToast('Event updated!', 'success');
+      // showToast('Event updated!', 'success');
     } else {
       addEvent({ ...form });
-      showToast('Event added!', 'success');
+      // showToast('Event added!', 'success');
     }
     setShowModal(false);
     setEditingId(null);
@@ -111,7 +109,7 @@ export function CalendarView() {
 
   const handleDelete = (id: string) => {
     deleteEvent(id);
-    showToast('Event deleted', 'info');
+    // showToast('Event deleted', 'info');
   };
 
   const displayDate = selectedDate.toLocaleDateString('en-US', {

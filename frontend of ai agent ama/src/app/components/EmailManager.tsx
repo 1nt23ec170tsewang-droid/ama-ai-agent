@@ -5,7 +5,6 @@ import {
   AlertCircle, Inbox,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
 
 import { API_BASE as API } from '../utils/config';
 
@@ -30,7 +29,6 @@ interface GmailMessage {
 
 export function EmailManager() {
   const { user } = useAuth();
-  const { showToast, removeToast } = useToast();
 
   const [gmailEmail, setGmailEmail] = useState<string | null>(() => localStorage.getItem('ama_gmail_email'));
   const [connected, setConnected] = useState(false);
@@ -55,12 +53,12 @@ export function EmailManager() {
       const decoded = decodeURIComponent(gEmail);
       localStorage.setItem('ama_gmail_email', decoded);
       setGmailEmail(decoded);
-      showToast(`Gmail connected: ${decoded}`, 'success');
+      // showToast(`Gmail connected: ${decoded}`, 'success');
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
     }
     if (gError) {
-      showToast(`Gmail error: ${decodeURIComponent(gError)}`, 'error');
+      // showToast(`Gmail error: ${decodeURIComponent(gError)}`, 'error');
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
@@ -83,11 +81,11 @@ export function EmailManager() {
       const res = await fetch(`${API}/api/gmail/auth`);
       const data = await res.json();
       if (data.url) {
-        showToast('Opening Google sign-in…', 'info');
+        // showToast('Opening Google sign-in…', 'info');
         window.location.href = data.url;
       }
     } catch {
-      showToast('Could not reach backend. Is it running?', 'error');
+      // showToast('Could not reach backend. Is it running?', 'error');
     }
   };
 
@@ -97,7 +95,7 @@ export function EmailManager() {
     setConnected(false);
     setEmails([]);
     setSelected(null);
-    showToast('Gmail disconnected', 'info');
+    // showToast('Gmail disconnected', 'info');
   };
 
   // ── Fetch inbox ──────────────────────────────────────────────────────────
@@ -110,7 +108,7 @@ export function EmailManager() {
       setEmails(data.emails || []);
       if ((data.emails || []).length > 0) setSelected(data.emails[0]);
     } catch (err: any) {
-      showToast(err.message || 'Could not fetch Gmail', 'error');
+      // showToast(err.message || 'Could not fetch Gmail', 'error');
     } finally {
       setLoading(false);
     }
@@ -119,10 +117,10 @@ export function EmailManager() {
   const handleSync = async () => {
     if (!gmailEmail || !connected) return;
     setSyncing(true);
-    const toastId = showToast('Syncing Gmail…', 'loading');
+    // const toastId = showToast('Syncing Gmail…', 'loading');
     await fetchEmails(gmailEmail);
-    removeToast(toastId);
-    showToast('Inbox synced!', 'success');
+    // removeToast(toastId);
+    // showToast('Inbox synced!', 'success');
     setSyncing(false);
   };
 
@@ -147,7 +145,7 @@ export function EmailManager() {
     setEmails(prev => prev.filter(e => e.id !== selected.id));
     const next = emails.find(e => e.id !== selected.id) || null;
     setSelected(next);
-    showToast('Archived', 'success');
+    // showToast('Archived', 'success');
     fetch(`${API}/api/gmail/archive`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -160,7 +158,7 @@ export function EmailManager() {
     setEmails(prev => prev.filter(e => e.id !== selected.id));
     setSelected(emails.find(e => e.id !== selected.id) || null);
     setShowReply(false);
-    showToast('Deleted', 'info');
+    // showToast('Deleted', 'info');
   };
 
   // ── AI Draft Reply ───────────────────────────────────────────────────────
@@ -177,12 +175,12 @@ export function EmailManager() {
       const data = await res.json();
       if (res.ok && data.draft) {
         setDraftReply(data.draft);
-        showToast('Draft generated!', 'success');
+        // showToast('Draft generated!', 'success');
       } else {
         throw new Error(data.message);
       }
     } catch {
-      showToast('Could not generate draft', 'error');
+      // showToast('Could not generate draft', 'error');
     } finally {
       setDraftLoading(false);
     }
@@ -204,12 +202,12 @@ export function EmailManager() {
         }),
       });
       if (!res.ok) throw new Error((await res.json()).message);
-      showToast('Reply sent!', 'success');
+      // showToast('Reply sent!', 'success');
       setShowReply(false);
       setDraftReply('');
       markRead(selected);
     } catch (err: any) {
-      showToast(err.message || 'Send failed', 'error');
+      // showToast(err.message || 'Send failed', 'error');
     } finally {
       setSendingReply(false);
     }
@@ -445,7 +443,7 @@ export function EmailManager() {
                 </button>
                 {/* Follow-up reminders (client-side toast only) */}
                 <button
-                  onClick={() => showToast('Follow-up reminder set for 3 days', 'info')}
+                  onClick={() => {/* showToast('Follow-up reminder set for 3 days', 'info') */}}
                   className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-sm"
                 >
                   <Bell className="w-4 h-4" />

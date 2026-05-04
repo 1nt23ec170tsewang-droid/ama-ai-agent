@@ -5,7 +5,6 @@ import {
   Mail, Phone, MapPin, Building, Edit2, Save, X, Sun, Moon, Monitor, LogOut
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { useToast } from '../context/ToastContext';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE } from '../utils/config';
@@ -81,7 +80,6 @@ export function SettingsView() {
     clearAllHistory,
   } = useSettings();
 
-  const { showToast } = useToast();
   const { tasks, events } = useApp();
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -100,18 +98,18 @@ export function SettingsView() {
       const res = await fetch(`${API_BASE}/api/gmail/auth`);
       const data = await res.json();
       if (data.url) {
-        showToast('Opening Google sign-in…', 'info');
+        // showToast('Opening Google sign-in…', 'info');
         window.location.href = data.url;
       }
     } catch {
-      showToast('Could not reach backend. Is it running?', 'error');
+      // showToast('Could not reach backend. Is it running?', 'error');
     }
   };
 
   const handleDisconnectGmail = () => {
     localStorage.removeItem('ama_gmail_email');
     setGmailEmail(null);
-    showToast('Gmail disconnected', 'info');
+    // showToast('Gmail disconnected', 'info');
   };
 
   const integrations = [
@@ -139,7 +137,7 @@ export function SettingsView() {
       onDisconnect: () => {
         localStorage.removeItem('ama_calendar_connected');
         setCalendarConnected(false);
-        showToast('Google Calendar disconnected', 'info');
+        // showToast('Google Calendar disconnected', 'info');
       },
     },
     {
@@ -151,12 +149,12 @@ export function SettingsView() {
       onConnect: () => {
         localStorage.setItem('ama_slack_connected', 'true');
         setSlackConnected(true);
-        showToast('Slack connected!', 'success');
+        // showToast('Slack connected!', 'success');
       },
       onDisconnect: () => {
         localStorage.removeItem('ama_slack_connected');
         setSlackConnected(false);
-        showToast('Slack disconnected', 'info');
+        // showToast('Slack disconnected', 'info');
       },
     },
     {
@@ -166,12 +164,12 @@ export function SettingsView() {
       connected: !!profile.phone,
       subtitle: profile.phone ? `Connected to ${profile.phone}` : 'Not connected',
       onConnect: () => {
-        showToast('Please add your Phone number in the Profile section above to connect WhatsApp.', 'info');
+        // showToast('Please add your Phone number in the Profile section above to connect WhatsApp.', 'info');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       },
       onDisconnect: () => {
         updateProfile({ ...profile, phone: '' });
-        showToast('WhatsApp disconnected (Phone removed)', 'info');
+        // showToast('WhatsApp disconnected (Phone removed)', 'info');
       },
     },
   ];
@@ -187,7 +185,7 @@ export function SettingsView() {
   const handleSave = () => {
     updateProfile(draft);
     setIsEditingProfile(false);
-    showToast('Profile saved successfully!', 'success');
+    // showToast('Profile saved successfully!', 'success');
   };
 
   const handleCancel = () => {
@@ -223,10 +221,10 @@ export function SettingsView() {
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
           if (isEditingProfile) {
             setDraft(prev => ({ ...prev, [type]: compressedBase64 }));
-            showToast(`${type === 'avatar' ? 'Profile picture' : 'Banner'} preview updated!`, 'success');
+            // showToast(`${type === 'avatar' ? 'Profile picture' : 'Banner'} preview updated!`, 'success');
           } else {
             updateProfile({ [type]: compressedBase64 });
-            showToast(`${type === 'avatar' ? 'Profile picture' : 'Banner'} updated!`, 'success');
+            // showToast(`${type === 'avatar' ? 'Profile picture' : 'Banner'} updated!`, 'success');
           }
         }
       };
@@ -242,13 +240,13 @@ export function SettingsView() {
             updateNotifications({ pushNotifications: true });
             new Notification('Push notifications enabled!', { body: 'Ama will notify you of important events.' });
           } else {
-            showToast('Push notification permission denied', 'error');
+            // showToast('Push notification permission denied', 'error');
             updateNotifications({ pushNotifications: false });
           }
         });
         return;
       } else {
-        showToast('Push notifications not supported on this device', 'error');
+        // showToast('Push notifications not supported on this device', 'error');
         return;
       }
     }
@@ -568,7 +566,7 @@ export function SettingsView() {
                   onClick={() => {
                     if (window.confirm('Permanently delete all chat history?')) {
                       clearAllHistory();
-                      showToast('All chat history deleted', 'success');
+                      // showToast('All chat history deleted', 'success');
                     }
                   }}
                   className="w-full mt-3 py-2 px-4 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors border border-red-200 dark:border-red-900/30"

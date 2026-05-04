@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
 import { useSettings } from '../context/SettingsContext';
 import { useEffect } from 'react';
 import { API_BASE } from '../utils/config';
@@ -22,7 +21,6 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
   const { tasks, events, team, addTask, addEvent, addTeamMember } = useApp();
   const { user } = useAuth();
   const { profile, aiSettings, privacy, clearAllHistory } = useSettings();
-  const { showToast, removeToast } = useToast();
 
   const [sessions, setSessions] = useState<{id: string, title: string, messages: any[]}[]>(() => {
     if (privacy?.incognitoMode) return [];
@@ -201,7 +199,7 @@ Always be precise and specific with all factual numerical data.`;
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     setIsLoading(true);
-    const toastId = showToast('Ama is thinking…', 'loading');
+    // const toastId = showToast('Ama is thinking…', 'loading');
 
     try {
       const token = localStorage.getItem('authToken');
@@ -237,12 +235,12 @@ Always be precise and specific with all factual numerical data.`;
             if (parsed.action === 'CREATE_TASK' && parsed.task) {
               const dueDate = parsed.task.dueDate || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
               addTask({ ...parsed.task, dueDate, status: 'todo', completed: false });
-              showToast(`Task created: ${parsed.task.title}`, 'success');
+              // showToast(`Task created: ${parsed.task.title}`, 'success');
               hasAction = true;
             } else if (parsed.action === 'CREATE_EVENT' && parsed.event) {
               const date = parsed.event.date || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
               addEvent({ ...parsed.event, date });
-              showToast(`Event scheduled: ${parsed.event.title}`, 'success');
+              // showToast(`Event scheduled: ${parsed.event.title}`, 'success');
               hasAction = true;
             } else if (parsed.action === 'CREATE_TEAM_MEMBER' && parsed.member) {
               addTeamMember({
@@ -255,7 +253,7 @@ Always be precise and specific with all factual numerical data.`;
                 tasksTotal: 0,
                 metrics: { productivity: 100, responseTime: '1h', projectsActive: 1 }
               });
-              showToast(`Team member added: ${parsed.member.name}`, 'success');
+              // showToast(`Team member added: ${parsed.member.name}`, 'success');
               hasAction = true;
             }
           } catch (e) {
@@ -273,7 +271,7 @@ Always be precise and specific with all factual numerical data.`;
       } else {
         const errMsg = data.error || data.message || 'AI response failed.';
         console.error('Chat backend error:', errMsg);
-        showToast(`AI error: ${errMsg.slice(0, 80)}`, 'error');
+        // showToast(`AI error: ${errMsg.slice(0, 80)}`, 'error');
         updateSessionMessages(currentId as string, [...history, {
           role: 'assistant',
           content: `⚠️ ${errMsg}\n\nCheck that your GEMINI_API_KEY is valid in the backend .env file.`,
@@ -286,7 +284,7 @@ Always be precise and specific with all factual numerical data.`;
         content: '⚠️ Could not reach the backend. Make sure it is running.',
       }];
       updateSessionMessages(currentId as string, errorHistory, userText || 'New Chat');
-      showToast(`Connection failed: ${msg}`, 'error');
+      // showToast(`Connection failed: ${msg}`, 'error');
     } finally {
       removeToast(toastId);
       setIsLoading(false);
@@ -304,7 +302,7 @@ Always be precise and specific with all factual numerical data.`;
     if (activeSessionId === id) {
       setActiveSessionId(null);
     }
-    showToast('Chat history deleted', 'info');
+    // showToast('Chat history deleted', 'info');
   };
 
   const clearAllSessions = () => {
@@ -313,7 +311,7 @@ Always be precise and specific with all factual numerical data.`;
     setActiveSessionId(null);
     localStorage.removeItem('ama_chat_sessions');
     window.dispatchEvent(new Event('ama_chat_sessions_updated'));
-    showToast('All chat history cleared', 'info');
+    // showToast('All chat history cleared', 'info');
   };
 
   useEffect(() => {
