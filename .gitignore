@@ -1,0 +1,45 @@
+﻿# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+.vite/
+*.tsbuildinfo
+
+# ── Environment files ─────────────────────────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ── Firebase / Google credentials ─────────────────────────────────────────────
+serviceAccountkey.json
+serviceAccountKey.json
+*serviceAccount*.json
+firebase-adminsdk*.json
+
+# ── OS-specific ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.idea/
+*.swp
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Cache ────────────────────────────────────────────────────────────────────
+.cache/
+.eslintcache
