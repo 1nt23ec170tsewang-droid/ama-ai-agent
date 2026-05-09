@@ -286,7 +286,6 @@ Always be precise and specific with all factual numerical data.`;
       updateSessionMessages(currentId as string, errorHistory, userText || 'New Chat');
       // showToast(`Connection failed: ${msg}`, 'error');
     } finally {
-      removeToast(toastId);
       setIsLoading(false);
     }
   };
@@ -319,6 +318,9 @@ Always be precise and specific with all factual numerical data.`;
       setHistoryOpen(false);
     }
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    const handleSelect = (e: any) => {
       setActiveSessionId(e.detail);
     };
     window.addEventListener('select_chat_session', handleSelect);
