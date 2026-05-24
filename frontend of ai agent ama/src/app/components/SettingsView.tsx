@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell, Shield, Palette, Globe, Zap, Camera,
   Mail, Phone, MapPin, Building, Edit2, Save, X, Sun, Moon, Monitor, LogOut

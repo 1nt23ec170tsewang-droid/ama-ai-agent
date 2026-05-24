@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import App from "./app/App";
 import Login from "./app/components/Login";
 import Register from "./app/components/Register";
