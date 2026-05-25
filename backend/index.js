@@ -28,25 +28,9 @@ const sendVerificationEmail = async (email, code) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,
-    subject: 'Your Verification Code - Ama Chief of Staff',
+    subject: 'Your Verification Code',
     text: `Your 6-digit verification code is: ${code}`,
-    html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 32px 24px; border: 1px solid #f1f5f9; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);">
-        <div style="text-align: center; margin-bottom: 24px;">
-          <div style="display: inline-block; width: 48px; height: 48px; background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 12px; line-height: 48px; text-align: center; font-size: 24px; color: #ea580c;">🔑</div>
-        </div>
-        <h2 style="color: #0f172a; font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 8px 0; tracking: -0.025em;">Verify Your Email Address</h2>
-        <p style="color: #475569; font-size: 14px; line-height: 24px; text-align: center; margin: 0 0 24px 0;">
-          Welcome to Ama's Chief of Staff Portal. Please use the 6-digit security code below to complete your registration:
-        </p>
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 18px; border-radius: 12px; text-align: center; font-family: monospace; font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #0f172a; margin: 0 auto 24px auto; max-width: 240px; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);">
-          ${code}
-        </div>
-        <p style="color: #94a3b8; font-size: 12px; line-height: 18px; text-align: center; margin: 0;">
-          This code will expire in 24 hours. If you did not register for this account, please ignore this email.
-        </p>
-      </div>
-    `
+    html: `<b>Your 6-digit verification code is: ${code}</b>`
   };
 
   return transporter.sendMail(mailOptions);
