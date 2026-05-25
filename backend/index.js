@@ -11,38 +11,27 @@ const crypto = require('crypto');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const { rateLimit } = require('express-rate-limit');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 // ──────────────────────────────────────────
-// NODEMAILER GMAIL EMAIL TRANSPORTER
+// RESEND EMAIL CLIENT
 // ──────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
-
-// Verify SMTP connection on boot
-transporter.verify((error, success) => {
-  if (error) {
-    console.warn("⚠️ Nodemailer transporter verification failed. Transactional emails might not deliver:", error.message);
-  } else {
-    console.log("✅ Nodemailer transporter is ready to deliver secure transactional emails!");
-  }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sendVerificationEmail = async (email, code) => {
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
+  const { data, error } = await resend.emails.send({
+    from: 'onboarding@resend.dev',
     to: email,
-    subject: 'Your Verification Code',
-    text: `Your 6-digit verification code is: ${code}`,
-    html: `<b>Your 6-digit verification code is: ${code}</b>`
-  };
+    subject: 'Verification Code for AMA AI',
+    html: `<strong>Your 6-digit verification code is: ${code}</strong>`
+  });
 
-  return transporter.sendMail(mailOptions);
+  if (error) {
+    console.error('❌ Failed to send email via Resend:', error);
+    throw new Error(error.message || 'Resend API error');
+  }
+
+  console.log('✅ Email sent successfully to:', email, '| ID:', data?.id);
 };
 
 // ──────────────────────────────────────────
@@ -531,18 +520,13 @@ app.post('/api/auth/register', async (req, res, next) => {
 
     logStructured('INFO', 'USER_REGISTERED', { userId: userData.id, email, role });
 
-    // Send transactional verification email via Nodemailer (with fail-safe fallback)
+    // Send transactional verification email via Resend (with fail-safe fallback)
     try {
-      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-        await sendVerificationEmail(email, verificationCode);
-        logStructured('INFO', 'EMAIL_VERIFICATION_SENT_SUCCESS', { email });
-      } else {
-        console.warn('⚠️ EMAIL_USER or EMAIL_PASS environment variables are missing. Falling back to log verification code.');
-        console.log("NEW VERIFICATION CODE:", verificationCode);
-      }
+      await sendVerificationEmail(email, verificationCode);
+      logStructured('INFO', 'EMAIL_VERIFICATION_SENT_SUCCESS', { email });
     } catch (emailErr) {
-      console.error('⚠️ Failed to send verification email via Nodemailer:', emailErr.message);
-      console.log("NEW VERIFICATION CODE:", verificationCode);
+      console.error('❌ Failed to send verification email via Resend:', emailErr.message);
+      console.log('📋 FALLBACK — NEW VERIFICATION CODE:', verificationCode);
     }
 
     res.status(201).json({ 
@@ -781,18 +765,13 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
       Object.assign(foundUser, updates);
     }
 
-    // Send transactional verification email via Nodemailer (with fail-safe fallback)
+    // Send transactional verification email via Resend (with fail-safe fallback)
     try {
-      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-        await sendVerificationEmail(email, verificationCode);
-        logStructured('INFO', 'EMAIL_VERIFICATION_RESENT_SUCCESS', { email });
-      } else {
-        console.warn('⚠️ EMAIL_USER or EMAIL_PASS environment variables are missing. Falling back to log verification code.');
-        console.log("NEW VERIFICATION CODE:", verificationCode);
-      }
+      await sendVerificationEmail(email, verificationCode);
+      logStructured('INFO', 'EMAIL_VERIFICATION_RESENT_SUCCESS', { email });
     } catch (emailErr) {
-      console.error('⚠️ Failed to send verification email via Nodemailer:', emailErr.message);
-      console.log("NEW VERIFICATION CODE:", verificationCode);
+      console.error('❌ Failed to resend verification email via Resend:', emailErr.message);
+      console.log('📋 FALLBACK — NEW VERIFICATION CODE:', verificationCode);
     }
 
     res.status(200).json({ message: 'A new 6-digit verification code has been sent to your email.' });
