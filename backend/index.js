@@ -11,6 +11,46 @@ const crypto = require('crypto');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const { rateLimit } = require('express-rate-limit');
+const nodemailer = require('nodemailer');
+
+// ──────────────────────────────────────────
+// NODEMAILER GMAIL EMAIL TRANSPORTER
+// ──────────────────────────────────────────
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+const sendVerificationEmail = async (email, code) => {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: 'Your Verification Code - Ama Chief of Staff',
+    text: `Your 6-digit verification code is: ${code}`,
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 32px 24px; border: 1px solid #f1f5f9; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 48px; height: 48px; background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 12px; line-height: 48px; text-align: center; font-size: 24px; color: #ea580c;">🔑</div>
+        </div>
+        <h2 style="color: #0f172a; font-size: 20px; font-weight: 700; text-align: center; margin: 0 0 8px 0; tracking: -0.025em;">Verify Your Email Address</h2>
+        <p style="color: #475569; font-size: 14px; line-height: 24px; text-align: center; margin: 0 0 24px 0;">
+          Welcome to Ama's Chief of Staff Portal. Please use the 6-digit security code below to complete your registration:
+        </p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 18px; border-radius: 12px; text-align: center; font-family: monospace; font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #0f172a; margin: 0 auto 24px auto; max-width: 240px; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);">
+          ${code}
+        </div>
+        <p style="color: #94a3b8; font-size: 12px; line-height: 18px; text-align: center; margin: 0;">
+          This code will expire in 24 hours. If you did not register for this account, please ignore this email.
+        </p>
+      </div>
+    `
+  };
+
+  return transporter.sendMail(mailOptions);
+};
 
 // ──────────────────────────────────────────
 // STRUCTURED LOGGER (JSON SIEM COMPLIANT)
@@ -497,13 +537,20 @@ app.post('/api/auth/register', async (req, res, next) => {
     }
 
     logStructured('INFO', 'USER_REGISTERED', { userId: userData.id, email, role });
-    // Log the email verification link/code (Transactional email mock)
-    console.log("NEW VERIFICATION CODE:", verificationCode);
-    logStructured('SECURITY', 'EMAIL_VERIFICATION_SENT', { 
-      email, 
-      code: verificationCode, 
-      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?email=${encodeURIComponent(email)}&code=${verificationCode}` 
-    });
+
+    // Send transactional verification email via Nodemailer (with fail-safe fallback)
+    try {
+      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        await sendVerificationEmail(email, verificationCode);
+        logStructured('INFO', 'EMAIL_VERIFICATION_SENT_SUCCESS', { email });
+      } else {
+        console.warn('⚠️ EMAIL_USER or EMAIL_PASS environment variables are missing. Falling back to log verification code.');
+        console.log("NEW VERIFICATION CODE:", verificationCode);
+      }
+    } catch (emailErr) {
+      console.error('⚠️ Failed to send verification email via Nodemailer:', emailErr.message);
+      console.log("NEW VERIFICATION CODE:", verificationCode);
+    }
 
     res.status(201).json({ 
       message: 'Registration successful. A 6-digit verification code has been sent to your email.',
@@ -741,12 +788,19 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
       Object.assign(foundUser, updates);
     }
 
-    console.log("NEW VERIFICATION CODE:", verificationCode);
-    logStructured('SECURITY', 'EMAIL_VERIFICATION_RESENT', { 
-      email, 
-      code: verificationCode,
-      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?email=${encodeURIComponent(email)}&code=${verificationCode}` 
-    });
+    // Send transactional verification email via Nodemailer (with fail-safe fallback)
+    try {
+      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        await sendVerificationEmail(email, verificationCode);
+        logStructured('INFO', 'EMAIL_VERIFICATION_RESENT_SUCCESS', { email });
+      } else {
+        console.warn('⚠️ EMAIL_USER or EMAIL_PASS environment variables are missing. Falling back to log verification code.');
+        console.log("NEW VERIFICATION CODE:", verificationCode);
+      }
+    } catch (emailErr) {
+      console.error('⚠️ Failed to send verification email via Nodemailer:', emailErr.message);
+      console.log("NEW VERIFICATION CODE:", verificationCode);
+    }
 
     res.status(200).json({ message: 'A new 6-digit verification code has been sent to your email.' });
   } catch (error) {
