@@ -146,9 +146,6 @@ async function askAI(prompt, systemPrompt) {
 }
 
 const app = express();
-// Trust proxy is required for Render/Cloudflare rate limiting
-app.set('trust proxy', 1);
-
 const PORT = process.env.PORT || 5000;
 const SECRET_KEY = process.env.JWT_SECRET;
 const REFRESH_SECRET_KEY = process.env.JWT_REFRESH_SECRET || (SECRET_KEY + '_refresh_rotation_key');
@@ -172,17 +169,14 @@ app.use(enforceHttps);
 // ──────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  'https://ama-frontend-8efz.onrender.com', // Explicitly added your Render URL
   'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:5174'
+  'http://127.0.0.1:5173'
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
       logStructured('SECURITY', 'CORS_BLOCKED', { origin, ip: origin });
@@ -427,7 +421,1479 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Port listener
-app.listen(PORT, () => {
-  console.log(`🚀 Ama Backend running at http://localhost:${PORT}`);
+// ══════════════════════════════════════════
+// AUTH ROUTES
+// ══════════════════════════════════════════
+
+// Helper: Password Complexity Validator
+const validatePassword = (pwd) => {
+  if (pwd.length < 8) return 'Password must be at least 8 characters long.';
+  if (!/[A-Z]/.test(pwd)) return 'Password must contain at least one uppercase letter.';
+  if (!/[a-z]/.test(pwd)) return 'Password must contain at least one lowercase letter.';
+  if (!/[0-9]/.test(pwd)) return 'Password must contain at least one number.';
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) return 'Password must contain at least one special character.';
+  return null;
+};
+
+// ──────────────────────────────────────────
+// AUTH ENDPOINTS
+// ──────────────────────────────────────────
+
+app.post('/api/auth/register', async (req, res, next) => {
+  try {
+    const name = sanitizeInput(req.body.name);
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const password = sanitizeInput(req.body.password);
+    const company = sanitizeInput(req.body.company);
+    const role = sanitizeInput(req.body.role || 'user'); // Default to standard user
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required.' });
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return res.status(400).json({ message: passwordError });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Generate 6-digit email verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+
+    const userData = { 
+      id: Date.now().toString(), 
+      name, 
+      email, 
+      company, 
+      role, 
+      isEmailVerified: false,
+      emailVerificationCode: verificationCode,
+      emailVerificationCodeExpires,
+      createdAt: new Date().toISOString() 
+    };
+
+    if (db) {
+      const existing = await db.collection('users').where('email', '==', email).get();
+      if (!existing.empty) return res.status(400).json({ message: 'User already exists.' });
+
+      await db.collection('users').doc(userData.id).set({ ...userData, password: hashedPassword });
+    } else {
+      if (inMemoryUsers.find(u => u.email === email)) {
+        return res.status(400).json({ message: 'User already exists.' });
+      }
+      inMemoryUsers.push({ ...userData, password: hashedPassword });
+    }
+
+    logStructured('INFO', 'USER_REGISTERED', { userId: userData.id, email, role });
+    // Log the email verification link/code (Transactional email mock)
+    logStructured('SECURITY', 'EMAIL_VERIFICATION_SENT', { 
+      email, 
+      code: verificationCode, 
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?email=${encodeURIComponent(email)}&code=${verificationCode}` 
+    });
+
+    res.status(201).json({ 
+      message: 'Registration successful. A 6-digit verification code has been sent to your email.',
+      email
+    });
+  } catch (error) {
+    next(error);
+  }
 });
+
+app.post('/api/auth/login', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const password = sanitizeInput(req.body.password);
+
+    if (!email || !password) return res.status(400).json({ message: 'Email and password required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser) {
+      logStructured('WARN', 'LOGIN_FAILED_USER_NOT_FOUND', { ip: req.ip, email });
+      return res.status(400).json({ message: 'Incorrect email or password.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, foundUser.password);
+    if (!isMatch) {
+      logStructured('WARN', 'LOGIN_FAILED_WRONG_PASSWORD', { ip: req.ip, email, userId: foundUser.id });
+      return res.status(400).json({ message: 'Incorrect email or password.' });
+    }
+
+    // Intercept if email is unverified
+    if (!foundUser.isEmailVerified) {
+      logStructured('SECURITY', 'LOGIN_BLOCKED_EMAIL_UNVERIFIED', { ip: req.ip, email, userId: foundUser.id });
+      return res.status(403).json({ 
+        message: 'Your email address is not verified. Please verify your email first.',
+        unverified: true,
+        email
+      });
+    }
+
+    // Update last login
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update({ lastLogin: new Date().toISOString() });
+    } else {
+      foundUser.lastLogin = new Date().toISOString();
+    }
+
+    // Generate JWT access & refresh tokens (RTR)
+    const accessToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
+      SECRET_KEY,
+      { expiresIn: '15m', algorithm: 'HS256' }
+    );
+
+    const refreshToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(refreshTokenHash).set({
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: refreshTokenHash,
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    // Set refresh token in HttpOnly Cookie (path protected to refresh)
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    logStructured('INFO', 'LOGIN_SUCCESS', { userId: foundUser.id, email: foundUser.email });
+
+    res.status(200).json({
+      message: 'Login successful',
+      token: accessToken,
+      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// EMAIL VERIFICATION ROUTES
+// ──────────────────────────────────────────
+
+app.post('/api/auth/verify-email', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const code = sanitizeInput(req.body.code);
+
+    if (!email || !code) return res.status(400).json({ message: 'Email and 6-digit code are required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser) return res.status(404).json({ message: 'User not found.' });
+
+    if (foundUser.isEmailVerified) return res.status(400).json({ message: 'Email is already verified.' });
+
+    // Validate verification code
+    if (foundUser.emailVerificationCode !== code) {
+      logStructured('WARN', 'EMAIL_VERIFICATION_FAILED_WRONG_CODE', { ip: req.ip, email, code });
+      return res.status(400).json({ message: 'Incorrect verification code.' });
+    }
+
+    const now = new Date().toISOString();
+    if (foundUser.emailVerificationCodeExpires < now) {
+      logStructured('WARN', 'EMAIL_VERIFICATION_FAILED_EXPIRED_CODE', { ip: req.ip, email });
+      return res.status(400).json({ message: 'Verification code has expired. Please request a new one.' });
+    }
+
+    // Mark as verified, wipe token
+    const updates = {
+      isEmailVerified: true,
+      emailVerificationCode: null,
+      emailVerificationCodeExpires: null
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+    } else {
+      Object.assign(foundUser, updates);
+    }
+
+    logStructured('SECURITY', 'EMAIL_VERIFIED_SUCCESS', { userId: foundUser.id, email });
+
+    // Automatically log user in upon successful email verification
+    const accessToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
+      SECRET_KEY,
+      { expiresIn: '15m', algorithm: 'HS256' }
+    );
+
+    const refreshToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(refreshTokenHash).set({
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: refreshTokenHash,
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(200).json({
+      message: 'Email successfully verified. You are now logged in.',
+      token: accessToken,
+      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/resend-verification', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    if (!email) return res.status(400).json({ message: 'Email is required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser) return res.status(404).json({ message: 'User not found.' });
+    if (foundUser.isEmailVerified) return res.status(400).json({ message: 'Email is already verified.' });
+
+    // Generate new code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const updates = {
+      emailVerificationCode: verificationCode,
+      emailVerificationCodeExpires
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+    } else {
+      Object.assign(foundUser, updates);
+    }
+
+    logStructured('SECURITY', 'EMAIL_VERIFICATION_RESENT', { 
+      email, 
+      code: verificationCode,
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?email=${encodeURIComponent(email)}&code=${verificationCode}` 
+    });
+
+    res.status(200).json({ message: 'A new 6-digit verification code has been sent to your email.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// JWT SILENT REFRESH (RTR & REPLAY PROTECTION)
+// ──────────────────────────────────────────
+
+app.post('/api/auth/refresh', async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(401).json({ message: 'Refresh token missing.' });
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, REFRESH_SECRET_KEY, { algorithms: ['HS256'] });
+    } catch (err) {
+      logStructured('WARN', 'INVALID_REFRESH_TOKEN', { ip: req.ip, error: err.message });
+      return res.status(401).json({ message: 'Invalid refresh token.' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+
+    let storedToken = null;
+    if (db) {
+      const snap = await db.collection('refresh_tokens').doc(tokenHash).get();
+      if (snap.exists) storedToken = snap.data();
+    } else {
+      storedToken = inMemoryRefreshTokens.find(t => t.tokenHash === tokenHash);
+    }
+
+    if (!storedToken) {
+      logStructured('WARN', 'UNKNOWN_REFRESH_TOKEN', { ip: req.ip, tokenHash });
+      return res.status(401).json({ message: 'Session not found.' });
+    }
+
+    // Replay / Token Reuse Detection
+    if (storedToken.rotated) {
+      logStructured('SECURITY', 'JWT_REPLAY_ATTACK_DETECTED', { ip: req.ip, userId: decoded.id, tokenHash });
+
+      // Attack detected! Immediately revoke ALL refresh tokens for this user
+      if (db) {
+        const snap = await db.collection('refresh_tokens').where('userId', '==', decoded.id).get();
+        const batch = db.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      } else {
+        for (let i = inMemoryRefreshTokens.length - 1; i >= 0; i--) {
+          if (inMemoryRefreshTokens[i].userId === decoded.id) {
+            inMemoryRefreshTokens.splice(i, 1);
+          }
+        }
+      }
+
+      res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+      return res.status(400).json({ message: 'Security alert: Session replayed. For safety, you must log in again.' });
+    }
+
+    // Mark current token as rotated
+    if (db) {
+      await db.collection('refresh_tokens').doc(tokenHash).update({ rotated: true });
+    } else {
+      storedToken.rotated = true;
+    }
+
+    // Fetch fresh user details
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').doc(decoded.id).get();
+      if (snap.exists) foundUser = { id: snap.id, ...snap.data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.id === decoded.id);
+    }
+
+    if (!foundUser) return res.status(401).json({ message: 'User no longer exists.' });
+
+    // Generate new Access & Rotated Refresh pair
+    const accessToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
+      SECRET_KEY,
+      { expiresIn: '15m', algorithm: 'HS256' }
+    );
+
+    const newRefreshToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const newHash = crypto.createHash('sha256').update(newRefreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(newHash).set({
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: newHash,
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    logStructured('INFO', 'SESSION_REFRESHED', { userId: foundUser.id });
+
+    res.status(200).json({
+      token: accessToken,
+      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// AUTH LOGOUT (REVOCATION)
+// ──────────────────────────────────────────
+
+app.post('/api/auth/logout', async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (refreshToken) {
+      const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+      if (db) {
+        await db.collection('refresh_tokens').doc(tokenHash).delete();
+      } else {
+        const idx = inMemoryRefreshTokens.findIndex(t => t.tokenHash === tokenHash);
+        if (idx !== -1) inMemoryRefreshTokens.splice(idx, 1);
+      }
+      logStructured('INFO', 'SESSION_REVOKED_LOGOUT', { tokenHash });
+    }
+
+    res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+    res.status(200).json({ message: 'Logout successful.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// CRYPTOGRAPHICALLY SECURE PASSWORD RESET ROUTES
+// ──────────────────────────────────────────
+
+app.post('/api/auth/forgot-password', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    if (!email) return res.status(400).json({ message: 'Email address is required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    // Always respond with a generic success message to prevent user enumeration attacks!
+    const genericResponse = { message: 'If an account exists with this email, a secure reset link has been sent.' };
+
+    if (!foundUser) {
+      logStructured('INFO', 'FORGOT_PASSWORD_REQUESTED_UNKNOWN_USER', { email });
+      return res.status(200).json(genericResponse);
+    }
+
+    // Generate secure CSPRNG 256-bit reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const resetExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // Strict 15 minutes
+
+    const updates = {
+      resetPasswordTokenHash: resetTokenHash,
+      resetPasswordTokenExpires: resetExpires
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+    } else {
+      Object.assign(foundUser, updates);
+    }
+
+    logStructured('SECURITY', 'PASSWORD_RESET_TOKEN_CREATED', { userId: foundUser.id, email });
+    // Log secure reset link (Transactional mock)
+    logStructured('SECURITY', 'PASSWORD_RESET_LINK_SENT', {
+      email,
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
+    });
+
+    res.status(200).json(genericResponse);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const token = sanitizeInput(req.body.token);
+    const newPassword = sanitizeInput(req.body.newPassword);
+
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ message: 'Email, token, and new password are required.' });
+    }
+
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) return res.status(400).json({ message: passwordError });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser || !foundUser.resetPasswordTokenHash) {
+      logStructured('WARN', 'PASSWORD_RESET_ATTEMPT_INVALID_USER', { email });
+      return res.status(400).json({ message: 'Invalid reset attempt or expired token.' });
+    }
+
+    // Validate SHA-256 token hash
+    const inputHash = crypto.createHash('sha256').update(token).digest('hex');
+    if (foundUser.resetPasswordTokenHash !== inputHash) {
+      logStructured('WARN', 'PASSWORD_RESET_ATTEMPT_WRONG_TOKEN', { userId: foundUser.id, email });
+      return res.status(400).json({ message: 'Invalid reset attempt or expired token.' });
+    }
+
+    const now = new Date().toISOString();
+    if (foundUser.resetPasswordTokenExpires < now) {
+      logStructured('WARN', 'PASSWORD_RESET_ATTEMPT_EXPIRED_TOKEN', { userId: foundUser.id, email });
+      return res.status(400).json({ message: 'Invalid reset attempt or expired token.' });
+    }
+
+    // Strict validation succeeded: hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    const updates = {
+      password: hashedPassword,
+      resetPasswordTokenHash: null,
+      resetPasswordTokenExpires: null
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+      
+      // Global Revocation: Delete all active refresh sessions for safety
+      const tokensSnap = await db.collection('refresh_tokens').where('userId', '==', foundUser.id).get();
+      const batch = db.batch();
+      tokensSnap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    } else {
+      Object.assign(foundUser, updates);
+      // In-memory revocation
+      for (let i = inMemoryRefreshTokens.length - 1; i >= 0; i--) {
+        if (inMemoryRefreshTokens[i].userId === foundUser.id) {
+          inMemoryRefreshTokens.splice(i, 1);
+        }
+      }
+    }
+
+    logStructured('SECURITY', 'PASSWORD_RESET_SUCCESS', { userId: foundUser.id, email });
+    res.status(200).json({ message: 'Password reset successful. All other active sessions have been signed out. Please log in.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// ROLE-GATED ADMINISTRATIVE ROUTES
+// ──────────────────────────────────────────
+
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    let allUsers = [];
+    if (db) {
+      const snap = await db.collection('users').get();
+      allUsers = snap.docs.map(doc => {
+        const { password, emailVerificationCode, emailVerificationCodeExpires, resetPasswordTokenHash, resetPasswordTokenExpires, ...safeUser } = doc.data();
+        return safeUser;
+      });
+    } else {
+      allUsers = inMemoryUsers.map(({ password, emailVerificationCode, emailVerificationCodeExpires, resetPasswordTokenHash, resetPasswordTokenExpires, ...safeUser }) => safeUser);
+    }
+
+    logStructured('SECURITY', 'ADMIN_FETCHED_USERS', { adminId: req.user.id });
+    res.json({ users: allUsers });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/system-status', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const status = {
+      environment: process.env.NODE_ENV || 'development',
+      database: db ? 'connected (Firestore)' : 'active (In-Memory Fallback)',
+      rateLimiters: 'configured & enforcing',
+      activeSessions: db ? 'persisted' : inMemoryRefreshTokens.length,
+      timestamp: new Date().toISOString()
+    };
+    
+    logStructured('SECURITY', 'ADMIN_FETCHED_SYSTEM_STATUS', { adminId: req.user.id });
+    res.json(status);
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+app.get('/api/auth/me', authenticateToken, async (req, res, next) => {
+  try {
+    let userProfile = req.user;
+    if (db) {
+      const snap = await db.collection('users').doc(req.user.id).get();
+      if (snap.exists) userProfile = { id: snap.id, ...snap.data() };
+    } else {
+      const uMatch = inMemoryUsers.find(u => u.id === req.user.id);
+      if (uMatch) userProfile = uMatch;
+    }
+    const { password, emailVerificationCode, emailVerificationCodeExpires, resetPasswordTokenHash, resetPasswordTokenExpires, ...safeProfile } = userProfile;
+    res.json({ user: safeProfile });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/auth/profile', authenticateToken, async (req, res, next) => {
+  try {
+    const name = sanitizeInput(req.body.name);
+    const company = sanitizeInput(req.body.company);
+    const role = sanitizeInput(req.body.role); // Standard profile edit should only update allowed fields
+
+    if (!name) return res.status(400).json({ message: 'Name is required.' });
+
+    const updates = { name, company, updatedAt: new Date().toISOString() };
+    if (db) {
+      await db.collection('users').doc(req.user.id).update(updates);
+    } else {
+      const found = inMemoryUsers.find(u => u.id === req.user.id);
+      if (found) Object.assign(found, updates);
+    }
+
+    logStructured('INFO', 'PROFILE_UPDATED', { userId: req.user.id });
+    res.json({ message: 'Profile updated successfully', user: { ...req.user, ...updates } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ══════════════════════════════════════════
+// GEMINI AI ROUTES
+// ══════════════════════════════════════════
+
+// Morning Briefing
+app.post('/api/ama/briefing', authenticateToken, async (req, res) => {
+  try {
+    const { date } = req.body;
+    const user = req.user;
+    const today = date || new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    const prompt = `You are Ama, an executive AI Chief of Staff. Generate a concise, professional morning briefing for ${user.name}${user.company ? `, ${user.role || 'Executive'} at ${user.company}` : ''}.
+
+Date: ${today}
+
+Structure the briefing with these sections:
+1. **Executive Summary** – 2 sentences on the day's theme
+2. **Top 3 Priorities** – numbered, action-oriented
+3. **Key Risks to Watch** – 2 bullet points
+4. **Focus Recommendation** – 1 sentence on what to protect time for
+5. **Motivational Close** – 1 powerful sentence
+
+Keep it sharp, executive-level. No fluff. Total under 200 words.`;
+
+    const text = await askAI(prompt);
+
+    // Cache in Firestore if available
+    if (db) {
+      const todayKey = new Date().toISOString().split('T')[0];
+      await db.collection('briefings').doc(`${user.id}_${todayKey}`).set({
+        userId: user.id, date: todayKey, content: text, createdAt: new Date().toISOString()
+      });
+    }
+
+    res.json({ briefing: text, generatedAt: new Date().toISOString() });
+  } catch (error) {
+    console.error('Briefing error:', error);
+    res.status(500).json({ message: 'Failed to generate briefing.', error: error.message });
+  }
+});
+
+// Chat with Ama
+app.post('/api/ama/chat', optionalAuth, async (req, res) => {
+  try {
+    const { messages, userContext } = req.body;
+    const user = req.user;
+
+    if (!messages || !messages.length) {
+      return res.status(400).json({ message: 'Messages are required.' });
+    }
+
+    // Merge userContext from body with req.user (body takes priority for name/company)
+    const ctx = {
+      name: userContext?.name || user.name || 'User',
+      company: userContext?.company || user.company || '',
+      role: userContext?.role || user.role || '',
+      email: userContext?.email || user.email || '',
+    };
+
+    // Build system prompt
+    let systemContext = req.body.systemPrompt || `You are Ama, a highly intelligent AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}${ctx.role ? `, ${ctx.role}` : ''}.
+You are proactive, concise, and strategic.`;
+
+    systemContext += `\n\nIMPORTANT SCHEDULING RULES:
+- When a user asks to schedule a meeting or create a task, DO NOT ask deep or clarifying questions (like attendees, preferred time, etc.) unless absolutely necessary.
+- Use reasonable defaults if information is missing (e.g., if no date is provided, assume today or tomorrow; if no time, assume a reasonable business hour; if no attendees, just schedule it for the user).
+- CRITICAL: Immediately output the EXACT JSON block as instructed in your LIVE CONTEXT to create the task/event. Do NOT just say you will do it or ask for permission.`;
+
+    let response;
+
+    // Prefer OpenRouter (multi-turn messages API)
+    if (OPENROUTER_API_KEY) {
+      try {
+        // Convert message history to OpenAI format
+        const openAIMessages = messages.map(m => ({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content: m.content,
+        }));
+        response = await askOpenRouterMessages(openAIMessages, systemContext);
+      } catch (orErr) {
+        console.warn('⚠️ OpenRouter chat failed, falling back to Gemini:', orErr.message);
+        const conversationHistory = messages.map(m => `${m.role === 'user' ? 'User' : 'Ama'}: ${m.content}`).join('\n');
+        const fullPrompt = `${systemContext}\n\nConversation:\n${conversationHistory}\n\nAma:`;
+        response = await askGemini(fullPrompt);
+      }
+    } else {
+      const conversationHistory = messages.map(m => `${m.role === 'user' ? 'User' : 'Ama'}: ${m.content}`).join('\n');
+      const fullPrompt = `${systemContext}\n\nConversation:\n${conversationHistory}\n\nAma:`;
+      response = await askGemini(fullPrompt);
+    }
+
+    // Save to Firestore
+    if (db) {
+      const sessionId = req.body.sessionId || Date.now().toString();
+      await db.collection('conversations').add({
+        userId: user.id,
+        sessionId,
+        userMessage: messages[messages.length - 1]?.content,
+        amaResponse: response,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({ response, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('Chat error:', error);
+    res.status(500).json({ message: 'Failed to get AI response.', error: error.message });
+  }
+});
+
+// Summarize Email
+app.post('/api/ama/summarize-email', authenticateToken, async (req, res) => {
+  try {
+    const { sender, subject, body } = req.body;
+    const prompt = `You are an executive assistant. Summarize this email in exactly 3 concise bullet points for a busy CEO.
+
+From: ${sender}
+Subject: ${subject}
+Body: ${body}
+
+Format:
+• [Key point 1]
+• [Key point 2]  
+• [Required action, if any]
+
+Keep each bullet under 15 words. Executive-level language only.`;
+
+    const summary = await askAI(prompt);
+    res.json({ summary });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to summarize email.', error: error.message });
+  }
+});
+
+// Draft Email Reply
+app.post('/api/ama/draft-reply', authenticateToken, async (req, res) => {
+  try {
+    const { sender, subject, body, senderName } = req.body;
+    const user = req.user;
+    const prompt = `Draft a professional email reply for ${user.name} to respond to this email. 
+
+From: ${senderName || sender}
+Subject: ${subject}
+Email: ${body}
+
+Requirements:
+- CEO/executive voice: confident, warm, decisive
+- Under 100 words
+- Address the sender by first name
+- Clear next step or action
+- Professional sign-off with "${user.name}"
+- No fluff, no filler phrases
+
+Write ONLY the email body, starting with the greeting.`;
+
+    const draft = await askAI(prompt);
+    res.json({ draft });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to draft reply.', error: error.message });
+  }
+});
+
+// Prioritize Tasks
+app.post('/api/ama/prioritize-tasks', authenticateToken, async (req, res) => {
+  try {
+    const { tasks } = req.body;
+    if (!tasks || !tasks.length) return res.status(400).json({ message: 'Tasks array required.' });
+
+    const taskList = tasks.map((t, i) => `${i + 1}. ${t.title} — Priority: ${t.priority || 'medium'}, Due: ${t.dueDate || 'no deadline'}`).join('\n');
+
+    const prompt = `You are an executive Chief of Staff. Analyze these tasks and identify the top 3 priorities.
+
+Tasks:
+${taskList}
+
+For each top priority, provide:
+- Task name
+- Why it's most urgent (1 sentence, impact-focused)
+- Recommended time block (e.g., "Handle first thing tomorrow morning")
+
+Format as:
+**#1: [Task Name]**
+Why: [reason]
+When: [time recommendation]
+
+Be decisive and strategic. Think like a CEO's right hand.`;
+
+    const analysis = await askAI(prompt);
+    res.json({ analysis });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to prioritize tasks.', error: error.message });
+  }
+});
+
+// Break Down Task
+app.post('/api/ama/breakdown-task', authenticateToken, async (req, res) => {
+  try {
+    const { title, description } = req.body;
+    const prompt = `Break down this task into 4-6 concrete, actionable subtasks.
+
+Task: ${title}
+Description: ${description || 'No additional description'}
+
+Format as a numbered list. Each subtask must:
+- Start with an action verb
+- Be completable in under 2 hours
+- Be specific enough to execute immediately
+
+Number them 1-6 maximum. No explanations, just the subtasks.`;
+
+    const breakdown = await askAI(prompt);
+    res.json({ breakdown });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to break down task.', error: error.message });
+  }
+});
+
+// Generate Analytics Insight
+app.post('/api/ama/analytics-insight', authenticateToken, async (req, res) => {
+  try {
+    const { metrics } = req.body;
+    const metricsText = Object.entries(metrics || {}).map(([k, v]) => `${k}: ${v}`).join('\n');
+
+    const prompt = `You are a strategic business analyst and Chief of Staff. Analyze these business metrics and provide executive insights.
+
+Metrics:
+${metricsText}
+
+Provide:
+**3 Key Insights:**
+1. [Insight with specific metric reference]
+2. [Insight with trend analysis]
+3. [Insight with opportunity or concern]
+
+**2 Risks to Watch:**
+• [Risk 1 with recommended mitigation]
+• [Risk 2 with recommended mitigation]
+
+Be specific, data-driven, and strategic. No generic observations.`;
+
+    const insight = await askAI(prompt);
+    res.json({ insight });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to generate insights.', error: error.message });
+  }
+});
+
+// Team Performance Note
+app.post('/api/ama/performance-note', authenticateToken, async (req, res) => {
+  try {
+    const { memberName, role, completedTasks, kpi, notes } = req.body;
+
+    const prompt = `Write a 3-4 sentence performance note for a team member. This will be used for a 1:1 meeting or performance review.
+
+Team Member: ${memberName}
+Role: ${role}
+Tasks Completed: ${completedTasks || 'N/A'}
+KPI Score: ${kpi || 'N/A'}
+Manager Notes: ${notes || 'No additional notes'}
+
+Requirements:
+- Start with genuine recognition of a specific strength
+- Acknowledge one area of growth with constructive framing  
+- End with an encouraging, forward-looking statement
+- Tone: warm, professional, like a supportive manager
+- 3-4 sentences maximum`;
+
+    const note = await askAI(prompt);
+    res.json({ note });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to generate performance note.', error: error.message });
+  }
+});
+
+// ══════════════════════════════════════════
+// TASKS ROUTES (Firestore)
+// ══════════════════════════════════════════
+
+app.get('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    if (!db) return res.json([]);
+    const snap = await db.collection('tasks').where('userId', '==', req.user.id).get();
+    const tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching tasks.' });
+  }
+});
+
+app.post('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const task = {
+      ...req.body,
+      userId: req.user.id,
+      createdAt: new Date().toISOString(),
+      col: req.body.col || 'todo',
+      subtasks: [],
+    };
+    if (db) {
+      const ref = await db.collection('tasks').add(task);
+      return res.status(201).json({ id: ref.id, ...task });
+    }
+    res.status(201).json({ id: Date.now().toString(), ...task });
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating task.' });
+  }
+});
+
+app.put('/api/tasks/:id', authenticateToken, checkDocOwnership('tasks'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('tasks').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
+    res.json({ id: req.params.id, ...req.body });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/tasks/:id', authenticateToken, checkDocOwnership('tasks'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('tasks').doc(req.params.id).delete();
+    res.json({ message: 'Task deleted successfully.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ══════════════════════════════════════════
+// EVENTS ROUTES (Firestore — non-Google-Calendar events)
+// ══════════════════════════════════════════
+
+app.get('/api/events', authenticateToken, async (req, res) => {
+  try {
+    if (!db) return res.json([]);
+    const snap = await db.collection('events').where('userId', '==', req.user.id).get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching events.' });
+  }
+});
+
+app.post('/api/events', authenticateToken, async (req, res) => {
+  try {
+    const event = { ...req.body, userId: req.user.id, createdAt: new Date().toISOString() };
+    if (db) {
+      const ref = await db.collection('events').add(event);
+      return res.status(201).json({ id: ref.id, ...event });
+    }
+    res.status(201).json({ id: Date.now().toString(), ...event });
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating event.' });
+  }
+});
+
+app.put('/api/events/:id', authenticateToken, checkDocOwnership('events'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('events').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
+    res.json({ id: req.params.id, ...req.body });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/events/:id', authenticateToken, checkDocOwnership('events'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('events').doc(req.params.id).delete();
+    res.json({ message: 'Event deleted successfully.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ══════════════════════════════════════════
+// METRICS ROUTES (Firestore)
+// ══════════════════════════════════════════
+
+app.get('/api/metrics', authenticateToken, async (req, res) => {
+  try {
+    if (!db) return res.json([]);
+    const snap = await db.collection('metrics').where('userId', '==', req.user.id).get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching metrics.' });
+  }
+});
+
+app.post('/api/metrics', authenticateToken, async (req, res) => {
+  try {
+    const metric = { ...req.body, userId: req.user.id, createdAt: new Date().toISOString() };
+    if (db) {
+      const ref = await db.collection('metrics').add(metric);
+      return res.status(201).json({ id: ref.id, ...metric });
+    }
+    res.status(201).json({ id: Date.now().toString(), ...metric });
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating metric.' });
+  }
+});
+
+app.put('/api/metrics/:id', authenticateToken, checkDocOwnership('metrics'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('metrics').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
+    res.json({ id: req.params.id, ...req.body });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/metrics/:id', authenticateToken, checkDocOwnership('metrics'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('metrics').doc(req.params.id).delete();
+    res.json({ message: 'Metric deleted successfully.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ══════════════════════════════════════════
+// TEAM ROUTES (Firestore)
+// ══════════════════════════════════════════
+
+app.get('/api/team', authenticateToken, async (req, res) => {
+  try {
+    if (!db) return res.json([]);
+    const snap = await db.collection('team').where('ownerId', '==', req.user.id).get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching team.' });
+  }
+});
+
+app.post('/api/team', authenticateToken, async (req, res) => {
+  try {
+    const member = { ...req.body, ownerId: req.user.id, createdAt: new Date().toISOString(), status: 'online' };
+    if (db) {
+      const ref = await db.collection('team').add(member);
+      return res.status(201).json({ id: ref.id, ...member });
+    }
+    res.status(201).json({ id: Date.now().toString(), ...member });
+  } catch (error) {
+    res.status(500).json({ message: 'Error adding team member.' });
+  }
+});
+
+app.put('/api/team/:id', authenticateToken, checkDocOwnership('team', 'ownerId'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('team').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
+    res.json({ id: req.params.id, ...req.body });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/team/:id', authenticateToken, checkDocOwnership('team', 'ownerId'), async (req, res, next) => {
+  try {
+    if (db) await db.collection('team').doc(req.params.id).delete();
+    res.json({ message: 'Team member removed.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ══════════════════════════════════════════
+// DASHBOARD DATA
+// ══════════════════════════════════════════
+
+app.get('/api/dashboard/briefing', authenticateToken, async (req, res) => {
+  res.json({
+    user: req.user.name,
+    date: new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+    topPriorities: ['Review Q3 planning deck', 'Follow up on investor intro email', 'Approve marketing budget'],
+    unreadEmails: 0,
+    pendingApprovals: 0,
+  });
+});
+
+app.get('/api/dashboard/tasks', authenticateToken, async (req, res) => {
+  try {
+    if (!db) return res.json([]);
+    const snap = await db.collection('tasks').where('userId', '==', req.user.id).where('col', '!=', 'done').get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// ══════════════════════════════════════════
+// GMAIL OAUTH ROUTES
+// ══════════════════════════════════════════
+
+const GMAIL_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
+const GMAIL_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GMAIL_REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT || 5000}/api/gmail/callback`;
+const GMAIL_FRONTEND_URL  = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+// In-memory token store (keyed by gmail address) — persists as long as server is up.
+const gmailTokenStore = new Map();
+
+function makeOAuth2(tokens) {
+  const c = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REDIRECT_URI);
+  if (tokens) {
+    c.setCredentials(tokens);
+    c.on('tokens', (t) => {
+      if (t.refresh_token) tokens.refresh_token = t.refresh_token;
+      tokens.access_token = t.access_token;
+      tokens.expiry_date  = t.expiry_date;
+    });
+  }
+  return c;
+}
+
+// GET /api/gmail/auth  — returns the Google OAuth consent URL
+app.get('/api/gmail/auth', authenticateToken, (req, res, next) => {
+  try {
+    const login_hint = req.user.email;
+    const state = Math.random().toString(36).slice(2);
+    const url = makeOAuth2().generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      state,
+      ...(login_hint && { login_hint }),
+      scope: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/calendar.readonly'
+      ],
+    });
+    res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/gmail/callback  — Google redirects here after user approves
+app.get('/api/gmail/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing code');
+  try {
+    const oauth2 = makeOAuth2();
+    const { tokens } = await oauth2.getToken(String(code));
+    oauth2.setCredentials(tokens);
+    const { data } = await google.oauth2({ version: 'v2', auth: oauth2 }).userinfo.get();
+    gmailTokenStore.set(data.email, { tokens, email: data.email });
+    console.log('✅ Gmail connected for:', data.email);
+    // Redirect to /dashboard so the SPA router renders App (not the /login catch-all)
+    res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_connected=${encodeURIComponent(data.email)}`);
+  } catch (err) {
+    console.error('Gmail callback error:', err.message);
+    res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_error=${encodeURIComponent(err.message)}`);
+  }
+});
+
+
+// GET /api/gmail/status?email=...
+app.get('/api/gmail/status', authenticateToken, requireEmailOwnership, (req, res) => {
+  const connected = req.query.email ? gmailTokenStore.has(String(req.query.email)) : false;
+  res.json({ connected });
+});
+
+// Helper: parse a raw Gmail message into our Email shape
+function parseGmailMessage(msg) {
+  const headers = msg.payload?.headers || [];
+  const hdr = (n) => headers.find(h => h.name.toLowerCase() === n.toLowerCase())?.value || '';
+  const from    = hdr('From');
+  const m = from.match(/^(.+?)\s*<(.+?)>$/) || [];
+  const fromName  = (m[1] || from).replace(/"/g, '').trim();
+  const fromEmail = (m[2] || from).trim();
+
+  let body = '';
+  const extract = (part) => {
+    if (!part) return;
+    if (part.mimeType === 'text/plain' && part.body?.data)
+      body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+    else if (part.parts) part.parts.forEach(extract);
+  };
+  extract(msg.payload);
+  if (!body && msg.payload?.body?.data)
+    body = Buffer.from(msg.payload.body.data, 'base64').toString('utf-8');
+
+  const preview = body.replace(/\s+/g, ' ').slice(0, 130) + (body.length > 130 ? '…' : '');
+  const labels  = msg.labelIds || [];
+  const isRead  = !labels.includes('UNREAD');
+
+  const rawDate = hdr('Date');
+  const msgDate = rawDate ? new Date(rawDate) : new Date();
+  const now     = new Date();
+  const diffH   = (now - msgDate) / 3600000;
+  const timeLabel =
+    diffH < 24  ? msgDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) :
+    diffH < 48  ? 'Yesterday' :
+    msgDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  return {
+    id:             msg.id,
+    threadId:       msg.threadId,
+    from:           fromName || fromEmail,
+    fromEmail,
+    subject:        hdr('Subject') || '(no subject)',
+    preview,
+    body,
+    time:           timeLabel,
+    date:           msgDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    isRead,
+    isStarred:      labels.includes('STARRED'),
+    hasAttachments: (msg.payload?.parts || []).some(p => p.filename?.length > 0),
+    labels,
+    priority: 'normal',
+    category: 'fyi',
+  };
+}
+
+// GET /api/gmail/messages?email=...&maxResults=20
+app.get('/api/gmail/messages', authenticateToken, requireEmailOwnership, async (req, res, next) => {
+  const { email, maxResults = 20 } = req.query;
+  const stored = gmailTokenStore.get(String(email));
+  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+
+  try {
+    const auth   = makeOAuth2(stored.tokens);
+    const gmail  = google.gmail({ version: 'v1', auth });
+    const list   = await gmail.users.messages.list({ userId: 'me', labelIds: ['INBOX'], maxResults: Number(maxResults) });
+    const ids    = (list.data.messages || []).map(m => m.id);
+    if (!ids.length) return res.json({ emails: [] });
+    const raw    = await Promise.all(ids.map(id => gmail.users.messages.get({ userId: 'me', id, format: 'full' }).then(r => r.data)));
+    res.json({ emails: raw.map(parseGmailMessage) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/gmail/archive  { email, messageId }
+app.post('/api/gmail/archive', authenticateToken, requireEmailOwnership, async (req, res, next) => {
+  const { email, messageId } = req.body;
+  const stored = gmailTokenStore.get(email);
+  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+  try {
+    const auth = makeOAuth2(stored.tokens);
+    await google.gmail({ version: 'v1', auth }).users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['INBOX'] } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/gmail/read  { email, messageId }
+app.post('/api/gmail/read', authenticateToken, requireEmailOwnership, async (req, res, next) => {
+  const { email, messageId } = req.body;
+  const stored = gmailTokenStore.get(email);
+  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+  try {
+    const auth = makeOAuth2(stored.tokens);
+    await google.gmail({ version: 'v1', auth }).users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['UNREAD'] } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/gmail/send  { email, to, subject, body, threadId }
+app.post('/api/gmail/send', authenticateToken, requireEmailOwnership, async (req, res, next) => {
+  const { email, to, subject, body, threadId } = req.body;
+  const stored = gmailTokenStore.get(email);
+  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+  try {
+    const auth = makeOAuth2(stored.tokens);
+    const raw  = Buffer.from(`To: ${to}\r\nSubject: Re: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`).toString('base64url');
+    await google.gmail({ version: 'v1', auth }).users.messages.send({ userId: 'me', requestBody: { raw, ...(threadId ? { threadId } : {}) } });
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ══════════════════════════════════════════
+// GOOGLE CALENDAR ROUTES
+// ══════════════════════════════════════════
+
+// GET /api/calendar/events?email=...
+app.get('/api/calendar/events', authenticateToken, requireEmailOwnership, async (req, res, next) => {
+  const { email, timeMin, timeMax } = req.query;
+  const stored = gmailTokenStore.get(String(email));
+  if (!stored) return res.status(401).json({ message: 'Google account not connected' });
+
+  try {
+    const auth = makeOAuth2(stored.tokens);
+    const calendar = google.calendar({ version: 'v3', auth });
+    
+    // Default to a 30-day window if not provided
+    const tMin = timeMin ? new Date(timeMin) : new Date();
+    const tMax = timeMax ? new Date(timeMax) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const response = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: tMin.toISOString(),
+      timeMax: tMax.toISOString(),
+      maxResults: 50,
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    const events = (response.data.items || []).map(e => {
+      const start = e.start.dateTime || e.start.date;
+      const end = e.end.dateTime || e.end.date;
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      
+      // Calculate duration in hours/mins
+      const diffMs = endDate - startDate;
+      const diffHrs = Math.floor(diffMs / 3600000);
+      const diffMins = Math.floor((diffMs % 3600000) / 60000);
+      let durationStr = '';
+      if (diffHrs > 0) durationStr += `${diffHrs}h`;
+      if (diffMins > 0) durationStr += ` ${diffMins}m`;
+      if (!durationStr) durationStr = 'All day';
+
+      return {
+        id: e.id,
+        title: e.summary || '(No title)',
+        date: start.split('T')[0],
+        time: startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        duration: durationStr.trim(),
+        type: e.hangoutLink ? 'call' : 'meeting',
+        location: e.location || (e.hangoutLink ? 'Virtual' : ''),
+        attendees: (e.attendees || []).length,
+      };
+    });
+
+    res.json({ events });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/calendar/events
+app.post('/api/calendar/events', authenticateToken, requireEmailOwnership, async (req, res, next) => {
+  const { email, title, date, time, duration } = req.body;
+  const stored = gmailTokenStore.get(String(email));
+  if (!stored) return res.status(401).json({ message: 'Google account not connected' });
+
+  try {
+    const auth = makeOAuth2(stored.tokens);
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    // Very basic parsing for demo: assuming 'time' is "9:00 AM" and date is "YYYY-MM-DD"
+    // In a real app we'd parse timezone strictly
+    const startDateTime = new Date(`${date} ${time}`);
+    
+    // Parse duration (e.g. "1h", "30m")
+    let addMs = 3600000; // default 1h
+    if (duration) {
+      if (duration.includes('h')) addMs = parseFloat(duration) * 3600000;
+      else if (duration.includes('m')) addMs = parseFloat(duration) * 60000;
+    }
+    const endDateTime = new Date(startDateTime.getTime() + addMs);
+
+    const event = {
+      summary: title,
+      start: {
+        dateTime: startDateTime.toISOString(),
+      },
+      end: {
+        dateTime: endDateTime.toISOString(),
+      },
+    };
+
+    const response = await calendar.events.insert({
+      calendarId: 'primary',
+      resource: event,
+    });
+
+    res.json({ success: true, eventId: response.data.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ──────────────────────────────────────────
+// CENTRALIZED SANITIZED ERROR MIDDLEWARE
+// ──────────────────────────────────────────
+app.use((err, req, res, next) => {
+  // Log full error details securely on the server-side only
+  logStructured('ERROR', 'API_INTERNAL_ERROR', {
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    message: err.message,
+    stack: err.stack
+  });
+
+  const statusCode = err.status || err.statusCode || 500;
+  
+  res.status(statusCode).json({
+    message: statusCode === 500 ? 'An unexpected error occurred. Please try again later.' : err.message,
+    status: 'error'
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`\n🚀 Ama Backend running at http://localhost:${PORT}`);
+  console.log(`📋 Health check: http://localhost:${PORT}/health`);
+});
+
