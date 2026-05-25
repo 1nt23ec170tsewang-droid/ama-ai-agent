@@ -24,6 +24,15 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Verify SMTP connection on boot
+transporter.verify((error, success) => {
+  if (error) {
+    console.warn("⚠️ Nodemailer transporter verification failed. Transactional emails might not deliver:", error.message);
+  } else {
+    console.log("✅ Nodemailer transporter is ready to deliver secure transactional emails!");
+  }
+});
+
 const sendVerificationEmail = async (email, code) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,
