@@ -63,6 +63,26 @@ export function EmailManager() {
     }
   }, []);
 
+  // ── Fetch inbox ──────────────────────────────────────────────────────────
+  const fetchEmails = useCallback(async (email: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/gmail/messages?email=${encodeURIComponent(email)}&maxResults=25`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Fetch failed');
+      setEmails(data.emails || []);
+      if ((data.emails || []).length > 0) setSelected(data.emails[0]);
+    } catch (err: any) {
+      // showToast(err.message || 'Could not fetch Gmail', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
   // ── Check connection status on mount ────────────────────────────────────
   useEffect(() => {
     if (!gmailEmail) return;
@@ -106,25 +126,6 @@ export function EmailManager() {
     // showToast('Gmail disconnected', 'info');
   };
 
-  // ── Fetch inbox ──────────────────────────────────────────────────────────
-  const fetchEmails = useCallback(async (email: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/api/gmail/messages?email=${encodeURIComponent(email)}&maxResults=25`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Fetch failed');
-      setEmails(data.emails || []);
-      if ((data.emails || []).length > 0) setSelected(data.emails[0]);
-    } catch (err: any) {
-      // showToast(err.message || 'Could not fetch Gmail', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
 
   const handleSync = async () => {
     if (!gmailEmail || !connected) return;
