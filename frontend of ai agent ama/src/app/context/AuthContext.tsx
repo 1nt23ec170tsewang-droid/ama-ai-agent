@@ -26,12 +26,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [tokenState, setTokenState] = useState<string | null>(null);
+  const [tokenState, setTokenState] = useState<string | null>(() => localStorage.getItem('authToken'));
   const [loading, setLoading] = useState<boolean>(true);
 
   const setToken = (t: string | null) => {
     setTokenState(t);
     setActiveToken(t);
+    if (t) {
+      localStorage.setItem('authToken', t);
+    } else {
+      localStorage.removeItem('authToken');
+    }
   };
 
   // Helper to fetch user details using the short-lived access token
@@ -69,10 +74,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await fetchProfile(data.accessToken);
         return data.accessToken;
       }
+      
+      const savedToken = localStorage.getItem('authToken');
+      if (savedToken) {
+        const ok = await fetchProfile(savedToken);
+        if (ok) {
+          setToken(savedToken);
+          return savedToken;
+        }
+      }
+      
       setToken(null);
       setUser(null);
       return null;
     } catch {
+      const savedToken = localStorage.getItem('authToken');
+      if (savedToken) {
+        const ok = await fetchProfile(savedToken);
+        if (ok) {
+          setToken(savedToken);
+          return savedToken;
+        }
+      }
       setToken(null);
       setUser(null);
       return null;

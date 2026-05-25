@@ -570,12 +570,47 @@ Always provide exact values. Never use placeholder ranges.`;
       className="flex h-full relative overflow-hidden"
       style={{ background: '#030014', fontFamily: "'Inter', system-ui, sans-serif" }}
     >
+      <style>{`
+        .scrollbar-none::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-none {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+
+        @media (max-width: 767px) {
+          .mobile-sub-header {
+            display: none !important;
+          }
+          .mobile-compact-welcome {
+            padding-top: 2rem !important;
+            padding-bottom: 1rem !important;
+            justify-content: flex-start !important;
+          }
+          .mobile-chips-container {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            width: 100% !important;
+            padding-bottom: 0.75rem !important;
+            scrollbar-width: none !important;
+          }
+          .mobile-chips-container::-webkit-scrollbar {
+            display: none !important;
+          }
+          .mobile-chip {
+            flex-shrink: 0 !important;
+          }
+        }
+      `}</style>
       {/* ── Main Chat Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full relative min-w-0">
 
         {/* ── Sleek Top Header with New Chat ────────────────── */}
         <div
-          className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+          className="hidden md:flex items-center justify-between px-4 py-3 flex-shrink-0 mobile-sub-header"
           style={{
             borderBottom: '1px solid rgba(255,255,255,0.04)',
             background: 'rgba(3,0,20,0.6)',
@@ -605,26 +640,26 @@ Always provide exact values. Never use placeholder ranges.`;
         {/* ── Messages or Welcome ──────────────────────────────────────── */}
         {!showMessages ? (
           /* Welcome screen */
-          <div className="flex-1 flex flex-col items-center justify-center p-6">
+          <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 overflow-y-auto mobile-compact-welcome">
             <div className="w-full max-w-2xl mx-auto">
               <motion.div
-                className="text-center mb-10"
+                className="text-center mb-3 md:mb-10"
                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, ease: 'easeOut' }}
               >
-                <div className="flex items-center justify-center mb-5">
+                <div className="flex items-center justify-center mb-2.5 md:mb-5">
                   <div
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center"
-                    style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', boxShadow: '0 0 60px rgba(99,102,241,0.4)' }}
+                    className="w-10 h-10 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center"
+                    style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', boxShadow: '0 0 40px rgba(99,102,241,0.3)' }}
                   >
-                    <Sparkles className="w-8 h-8 text-white" />
+                    <Sparkles className="w-5 h-5 md:w-8 md:h-8 text-white" />
                   </div>
                 </div>
-                <h1 className="text-3xl font-bold mb-2" style={{ color: '#f1f5f9' }}>{greeting}</h1>
-                <p className="text-base" style={{ color: '#475569' }}>How can I assist you today?</p>
+                <h1 className="text-lg md:text-3xl font-bold mb-1 md:mb-2" style={{ color: '#f1f5f9' }}>{greeting}</h1>
+                <p className="text-xs md:text-base mb-1" style={{ color: '#94a3b8' }}>How can I assist you today?</p>
 
                 {/* Gmail connection badge */}
-                <div className="flex justify-center mt-4">
+                <div className="flex justify-center mt-3">
                   {gmailEmail ? (
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
                       style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80' }}>
@@ -640,6 +675,21 @@ Always provide exact values. Never use placeholder ranges.`;
                     </a>
                   )}
                 </div>
+
+                {/* Mobile-only New Chat button */}
+                <div className="flex md:hidden justify-center mt-3">
+                  <button
+                    onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-md active:scale-[0.98]"
+                    style={{
+                      background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                      color: '#fff',
+                      boxShadow: '0 4px 10px rgba(99,102,241,0.2)'
+                    }}
+                  >
+                    <Plus className="w-3.5 h-3.5" /> New Chat
+                  </button>
+                </div>
               </motion.div>
 
               {/* Center input on welcome */}
@@ -653,9 +703,13 @@ Always provide exact values. Never use placeholder ranges.`;
                 />
               </motion.div>
 
-              {/* Suggestion chips */}
+              {/* Suggestion chips (swipeable horizontally on mobile, wrapped grid on desktop) */}
               <motion.div
-                className="flex flex-wrap justify-center gap-2 mt-6"
+                className="flex overflow-x-auto whitespace-nowrap md:flex-wrap md:justify-center gap-2 mt-3 md:mt-6 pb-3 px-2 w-full scrollbar-none mobile-chips-container"
+                style={{
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none'
+                }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
               >
                 {SUGGESTION_CHIPS.map((chip, i) => {
@@ -668,7 +722,7 @@ Always provide exact values. Never use placeholder ranges.`;
                       transition={{ delay: 0.3 + i * 0.05 }}
                       whileHover={{ scale: 1.04, y: -1 }}
                       whileTap={{ scale: 0.97 }}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-medium transition-all"
+                      className="flex-shrink-0 flex items-center gap-2 px-3.5 py-2 md:px-4 md:py-2.5 rounded-full text-xs font-medium transition-all mobile-chip"
                       style={{
                         background: 'rgba(255,255,255,0.04)',
                         border: '1px solid rgba(255,255,255,0.08)',
@@ -963,19 +1017,16 @@ function InputBar({
       <div
         className="flex items-end gap-2 rounded-2xl px-3 py-2"
         style={{
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          backdropFilter: 'blur(16px)',
-          boxShadow: '0 0 0 1px rgba(99,102,241,0.08), 0 8px 32px rgba(0,0,0,0.4)',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(99,102,241,0.15)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 0 0 1px rgba(99,102,241,0.05), 0 8px 32px rgba(0,0,0,0.5)',
         }}
       >
         <input type="file" ref={fileInputRef} onChange={onFileSelect} multiple className="hidden" />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 rounded-xl flex-shrink-0 transition-all mb-0.5"
-          style={{ color: '#475569' }}
-          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#818cf8'}
-          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#475569'}
+          className="p-2 rounded-xl flex-shrink-0 transition-all mb-0.5 text-slate-400 hover:text-indigo-400"
           title="Attach file"
         >
           <Paperclip className="w-5 h-5" />
@@ -1002,10 +1053,7 @@ function InputBar({
 
         <button
           onClick={handleVoice}
-          className={`p-2 rounded-xl flex-shrink-0 mb-0.5 transition-all ${isListening ? 'animate-pulse' : ''}`}
-          style={{ color: isListening ? '#ef4444' : '#475569' }}
-          onMouseEnter={e => { if (!isListening) (e.currentTarget as HTMLElement).style.color = '#818cf8'; }}
-          onMouseLeave={e => { if (!isListening) (e.currentTarget as HTMLElement).style.color = '#475569'; }}
+          className={`p-2 rounded-xl flex-shrink-0 mb-0.5 transition-all ${isListening ? 'animate-pulse text-red-500' : 'text-slate-400 hover:text-indigo-400'}`}
           title="Voice input"
         >
           <Mic className="w-5 h-5" />
@@ -1035,7 +1083,7 @@ function InputBar({
           </motion.button>
         )}
       </div>
-      <p className="text-center text-xs mt-2" style={{ color: '#1e293b' }}>
+      <p className="text-center text-xs mt-2" style={{ color: '#475569' }}>
         Ama can make mistakes. Verify important information.
       </p>
     </>

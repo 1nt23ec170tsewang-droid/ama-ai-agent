@@ -50,7 +50,12 @@ export default function Register() {
     setConnectingGmail(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/api/gmail/auth`);
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE}/api/gmail/auth`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -122,8 +127,12 @@ export default function Register() {
 
   const handlePostLoginRedirect = (userEmail: string) => {
     if (userEmail.toLowerCase().endsWith('@gmail.com')) {
+      const token = localStorage.getItem('authToken');
       fetch(`${API_BASE}/api/gmail/status?email=${encodeURIComponent(userEmail)}`, {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
       })
         .then(async (statusRes) => {
           if (statusRes.ok) {
