@@ -59,7 +59,12 @@ export default function App() {
   };
 
   return (
-    <SettingsProvider userName={authenticatedUser.name} userEmail={authenticatedUser.email}>
+    <SettingsProvider 
+      userName={user?.name} 
+      userEmail={user?.email} 
+      userCompany={user?.company} 
+      userRole={user?.role}
+    >
       <AppProvider>
         <div className="flex bg-slate-50 relative" style={{ width: '100%', height: '100dvh' }}>
           {/* Mobile overlay */}

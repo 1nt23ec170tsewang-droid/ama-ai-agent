@@ -185,9 +185,33 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
 
             {briefing && !generating && (
               <div>
-                <p className="text-slate-700 dark:text-slate-200 leading-relaxed text-sm md:text-base">
-                  {briefing}
-                </p>
+                <div className="space-y-3 text-slate-700 dark:text-slate-200 leading-relaxed text-sm md:text-base">
+                  {briefing.split('\n').map((line, idx) => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return null;
+                    // Check if it's a list item (starts with - * or digit followed by dot/parenthesis)
+                    const isListItem = /^[*-]\s|^\d+[\s.)]/.test(trimmed);
+                    if (isListItem) {
+                      const content = trimmed.replace(/^[*-]\s|^\d+[\s.)]\s*/, '');
+                      return (
+                        <div key={idx} className="flex items-start gap-2 pl-4 border-l-2 border-amber-500/30">
+                          <span className="text-amber-500 flex-shrink-0 mt-1.5">•</span>
+                          <span>{content}</span>
+                        </div>
+                      );
+                    }
+                    // Check if it's a quote (starts/ends with quote or contains quote format)
+                    const isQuote = trimmed.startsWith('"') || (trimmed.includes('"') && trimmed.includes('-'));
+                    if (isQuote) {
+                      return (
+                        <p key={idx} className="italic text-slate-600 dark:text-slate-400 pl-4 border-l-4 border-orange-500 bg-orange-500/5 py-1.5 pr-2 rounded">
+                          {trimmed}
+                        </p>
+                      );
+                    }
+                    return <p key={idx}>{trimmed}</p>;
+                  })}
+                </div>
                 <button
                   onClick={handleGenerate}
                   className="mt-4 flex items-center gap-2 px-4 py-2 text-sm text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 border border-amber-300 dark:border-amber-700 hover:border-amber-400 rounded-lg transition-all"

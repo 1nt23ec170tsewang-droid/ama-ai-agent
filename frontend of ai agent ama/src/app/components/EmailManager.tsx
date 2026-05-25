@@ -28,7 +28,7 @@ interface GmailMessage {
 }
 
 export function EmailManager() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   const [gmailEmail, setGmailEmail] = useState<string | null>(() => localStorage.getItem('ama_gmail_email'));
   const [connected, setConnected] = useState(false);
@@ -66,19 +66,27 @@ export function EmailManager() {
   // ── Check connection status on mount ────────────────────────────────────
   useEffect(() => {
     if (!gmailEmail) return;
-    fetch(`${API}/api/gmail/status?email=${encodeURIComponent(gmailEmail)}`)
+    fetch(`${API}/api/gmail/status?email=${encodeURIComponent(gmailEmail)}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    })
       .then(r => r.json())
       .then(d => {
         setConnected(d.connected);
         if (d.connected) fetchEmails(gmailEmail);
       })
       .catch(() => setConnected(false));
-  }, [gmailEmail]);
+  }, [gmailEmail, token, fetchEmails]);
 
   // ── Start Gmail OAuth ────────────────────────────────────────────────────
   const handleConnectGmail = async () => {
     try {
-      const res = await fetch(`${API}/api/gmail/auth`);
+      const res = await fetch(`${API}/api/gmail/auth`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
       const data = await res.json();
       if (data.url) {
         // showToast('Opening Google sign-in…', 'info');
@@ -102,7 +110,11 @@ export function EmailManager() {
   const fetchEmails = useCallback(async (email: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/gmail/messages?email=${encodeURIComponent(email)}&maxResults=25`);
+      const res = await fetch(`${API}/api/gmail/messages?email=${encodeURIComponent(email)}&maxResults=25`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Fetch failed');
       setEmails(data.emails || []);
@@ -112,7 +124,7 @@ export function EmailManager() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]);
 
   const handleSync = async () => {
     if (!gmailEmail || !connected) return;
@@ -130,7 +142,10 @@ export function EmailManager() {
     setEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isRead: true } : e));
     fetch(`${API}/api/gmail/read`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({ email: gmailEmail, messageId: msg.id }),
     }).catch(() => {});
   };
@@ -148,7 +163,10 @@ export function EmailManager() {
     // showToast('Archived', 'success');
     fetch(`${API}/api/gmail/archive`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({ email: gmailEmail, messageId: selected.id }),
     }).catch(() => {});
   };
@@ -192,7 +210,10 @@ export function EmailManager() {
     try {
       const res = await fetch(`${API}/api/gmail/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           email: gmailEmail,
           to: selected.fromEmail,

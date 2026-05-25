@@ -73,18 +73,20 @@ function save<T>(key: string, value: T) {
 // ── Context ───────────────────────────────────────────────────────────────────
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-export function SettingsProvider({ children, userEmail, userName }: {
+export function SettingsProvider({ children, userEmail, userName, userCompany, userRole }: {
   children: ReactNode;
   userEmail?: string;
   userName?: string;
+  userCompany?: string;
+  userRole?: string;
 }) {
   const [profile, setProfile] = useState<ProfileData>(() =>
     load('ama_profile', {
       name: userName || '',
       email: userEmail || '',
       phone: '',
-      role: '',
-      company: '',
+      role: userRole || '',
+      company: userCompany || '',
       location: '',
       bio: '',
     })
@@ -125,15 +127,28 @@ export function SettingsProvider({ children, userEmail, userName }: {
     })
   );
 
-  // Seed name/email from auth on first load only (don't overwrite saved profile)
+  // Dynamically sync profile details from active auth session
   useEffect(() => {
-    setProfile(prev => ({
-      ...prev,
-      name: prev.name || userName || '',
-      email: prev.email || userEmail || '',
-    }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally run only once
+    setProfile(prev => {
+      const updates: Partial<ProfileData> = {};
+      if (userName && userName !== 'User' && prev.name !== userName) {
+        updates.name = userName;
+      }
+      if (userEmail && userEmail !== 'user@example.com' && prev.email !== userEmail) {
+        updates.email = userEmail;
+      }
+      if (userCompany && prev.company !== userCompany) {
+        updates.company = userCompany;
+      }
+      if (userRole && prev.role !== userRole) {
+        updates.role = userRole;
+      }
+      if (Object.keys(updates).length > 0) {
+        return { ...prev, ...updates };
+      }
+      return prev;
+    });
+  }, [userName, userEmail, userCompany, userRole]);
 
   // Persist settings
   useEffect(() => { save('ama_profile', profile); }, [profile]);

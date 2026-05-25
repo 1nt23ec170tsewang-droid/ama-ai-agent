@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, Shield, Palette, Globe, Zap, Camera,
@@ -81,7 +81,7 @@ export function SettingsView() {
   } = useSettings();
 
   const { tasks, events } = useApp();
-  const { logout } = useAuth();
+  const { logout, token } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -95,7 +95,11 @@ export function SettingsView() {
 
   const handleConnectGmail = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/gmail/auth`);
+      const res = await fetch(`${API_BASE}/api/gmail/auth`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
       const data = await res.json();
       if (data.url) {
         // showToast('Opening Google sign-in…', 'info');
@@ -176,6 +180,12 @@ export function SettingsView() {
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [draft, setDraft] = useState({ ...profile });
+
+  useEffect(() => {
+    if (!isEditingProfile) {
+      setDraft({ ...profile });
+    }
+  }, [profile, isEditingProfile]);
 
   const handleEditStart = () => {
     setDraft({ ...profile });
