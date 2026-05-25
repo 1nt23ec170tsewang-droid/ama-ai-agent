@@ -498,6 +498,7 @@ app.post('/api/auth/register', async (req, res, next) => {
 
     logStructured('INFO', 'USER_REGISTERED', { userId: userData.id, email, role });
     // Log the email verification link/code (Transactional email mock)
+    console.log("NEW VERIFICATION CODE:", verificationCode);
     logStructured('SECURITY', 'EMAIL_VERIFICATION_SENT', { 
       email, 
       code: verificationCode, 
@@ -740,6 +741,7 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
       Object.assign(foundUser, updates);
     }
 
+    console.log("NEW VERIFICATION CODE:", verificationCode);
     logStructured('SECURITY', 'EMAIL_VERIFICATION_RESENT', { 
       email, 
       code: verificationCode,

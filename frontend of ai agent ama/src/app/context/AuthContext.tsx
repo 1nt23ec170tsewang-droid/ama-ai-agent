@@ -16,7 +16,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; unverified?: boolean }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string; unverified?: boolean }>;
   logout: () => Promise<void>;
-  verifyEmail: (code: string) => Promise<{ success: boolean; error?: string }>;
+  verifyEmail: (email: string, code: string) => Promise<{ success: boolean; error?: string }>;
   resendVerification: (email: string) => Promise<{ success: boolean; error?: string }>;
   forgotPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (password: string, token: string, email: string) => Promise<{ success: boolean; error?: string }>;
@@ -167,12 +167,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const verifyEmail = async (code: string) => {
+  const verifyEmail = async (email: string, code: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ email: email.toLowerCase().trim(), code }),
         credentials: 'include'
       });
       const data = await res.json();

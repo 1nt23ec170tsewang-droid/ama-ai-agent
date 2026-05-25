@@ -97,7 +97,7 @@ export default function Register() {
       return;
     }
 
-    const result = await verifyEmail(verificationCode);
+    const result = await verifyEmail(pendingEmail || email, verificationCode);
     if (result.success) {
       setLoading(false);
       setIsVerifying(false);
