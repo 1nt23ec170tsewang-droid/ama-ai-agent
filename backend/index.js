@@ -1288,6 +1288,25 @@ app.post('/api/ama/chat/stream', optionalAuth, async (req, res) => {
 
   systemContext += `\n\nIMPORTANT SCHEDULING RULES:\n- When a user asks to schedule a meeting or create a task, immediately output the EXACT JSON block without asking clarifying questions.\n- Use reasonable defaults if information is missing.`;
 
+  // Slot-filling instructions — minimalist one-question-at-a-time mode
+  systemContext += `\n\nSLOT-FILLING RULES (CRITICAL):
+- When the user wants to draft an email, schedule a meeting, or complete a task that needs more info:
+  * Ask ONLY ONE short, direct question at a time. Never ask multiple questions at once.
+  * Do NOT explain your reasoning or say what you are doing. Just ask the question.
+  * Once you have all required info (to, subject, body for email OR title, date, time for meeting), output the final result.
+- When you have gathered all info for an email draft and the user confirms, output this EXACT JSON block:
+\`\`\`json
+{
+  "action": "SEND_EMAIL",
+  "email": {
+    "to": "recipient@example.com",
+    "subject": "Email subject",
+    "body": "Full email body text"
+  }
+}
+\`\`\`
+- ONLY output the SEND_EMAIL block when the user has explicitly confirmed they want to send it.`;
+
   let fullReply = '';
 
   try {
@@ -1372,6 +1391,39 @@ app.post('/api/ama/chat/stream', optionalAuth, async (req, res) => {
   } catch (err) {
     console.error('SSE stream error:', err.message);
     sendError('Failed to stream AI response. Please try again.');
+  }
+});
+
+// ──────────────────────────────────────────
+// AI-TRIGGERED GMAIL SEND  (/api/ama/send-email)
+// ──────────────────────────────────────────
+// Called by the frontend after user confirms an AI-drafted email.
+app.post('/api/ama/send-email', optionalAuth, async (req, res, next) => {
+  try {
+    const { gmailEmail, to, subject, body } = req.body;
+    if (!gmailEmail || !to || !subject || !body) {
+      return res.status(400).json({ message: 'gmailEmail, to, subject, and body are required.' });
+    }
+
+    const stored = gmailTokenStore.get(String(gmailEmail));
+    if (!stored) {
+      return res.status(401).json({ message: 'Gmail not connected. Please connect your Gmail account first.' });
+    }
+
+    const auth = makeOAuth2(stored.tokens);
+    const raw = Buffer.from(
+      `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+    ).toString('base64url');
+
+    await google.gmail({ version: 'v1', auth }).users.messages.send({
+      userId: 'me',
+      requestBody: { raw },
+    });
+
+    logStructured('INFO', 'AI_GMAIL_SEND', { gmailEmail, to, subject });
+    res.json({ success: true, message: `Email sent to ${to}` });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -1759,8 +1811,26 @@ const GMAIL_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GMAIL_REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT || 5000}/api/gmail/callback`;
 const GMAIL_FRONTEND_URL  = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// In-memory token store (keyed by gmail address) — persists as long as server is up.
+// In-memory token store (keyed by gmail address)
 const gmailTokenStore = new Map();
+
+// ── Boot: load all saved Gmail tokens from Firestore ───────────────────────
+async function loadGmailTokens() {
+  if (!db) return;
+  try {
+    const snap = await db.collection('gmail_tokens').get();
+    snap.forEach(doc => {
+      const { email, tokens } = doc.data();
+      if (email && tokens) {
+        gmailTokenStore.set(email, { email, tokens });
+        console.log('✅ Restored Gmail token for:', email);
+      }
+    });
+  } catch (err) {
+    console.warn('⚠️  Could not load Gmail tokens from Firestore:', err.message);
+  }
+}
+loadGmailTokens();
 
 function makeOAuth2(tokens) {
   const c = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REDIRECT_URI);
@@ -1811,7 +1881,11 @@ app.get('/api/gmail/callback', async (req, res) => {
     const { data } = await google.oauth2({ version: 'v2', auth: oauth2 }).userinfo.get();
     gmailTokenStore.set(data.email, { tokens, email: data.email });
     console.log('✅ Gmail connected for:', data.email);
-    // Redirect to /dashboard so the SPA router renders App (not the /login catch-all)
+    // Persist tokens to Firestore so they survive server restarts
+    if (db) {
+      db.collection('gmail_tokens').doc(data.email).set({ email: data.email, tokens, updatedAt: new Date().toISOString() })
+        .catch(err => console.error('Failed to persist Gmail token:', err.message));
+    }
     res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_connected=${encodeURIComponent(data.email)}`);
   } catch (err) {
     console.error('Gmail callback error:', err.message);

@@ -8,7 +8,7 @@ import {
   Send, Sparkles, Calendar, Mail, CheckSquare, Bell,
   Paperclip, X, FileText, Image as ImageIcon, Users,
   MessageSquare, Trash2, Mic, Menu, Square, Copy,
-  Check, RefreshCw, Plus, ChevronDown,
+  Check, RefreshCw, Plus, ChevronDown, ExternalLink, ShieldCheck,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -26,8 +26,8 @@ if (!document.getElementById('ama-inter-font')) {
 
 // ── Suggestion chips ──────────────────────────────────────────────────────────
 const SUGGESTION_CHIPS = [
-  { id: '1', icon: Calendar,      label: 'Schedule a meeting',   prompt: 'Help me schedule a team meeting for next week. What should I consider?' },
-  { id: '2', icon: Mail,          label: 'Draft an email',        prompt: 'Draft a professional follow-up email for a business meeting.' },
+  { id: '1', icon: Calendar,      label: 'Schedule a meeting',   prompt: 'I need to schedule a meeting.' },
+  { id: '2', icon: Mail,          label: 'Draft an email',        prompt: 'I need to draft an email.' },
   { id: '3', icon: CheckSquare,   label: 'Create a task plan',    prompt: 'Help me break down a complex project into manageable tasks.' },
   { id: '4', icon: Users,         label: 'Team 1:1 agenda',       prompt: 'Help me create an agenda for 1:1 meetings with my direct reports.' },
   { id: '5', icon: MessageSquare, label: 'Write a status update', prompt: 'Help me write a concise weekly status update for my team.' },
@@ -231,6 +231,12 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     return () => clearInterval(t);
   }, [firstName]);
 
+  // ── Gmail state ──────────────────────────────────────────────────────────
+  const [gmailEmail] = useState<string | null>(() => localStorage.getItem('ama_gmail_email'));
+  const [pendingEmail, setPendingEmail] = useState<{ to: string; subject: string; body: string } | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSentMsg, setEmailSentMsg] = useState('');
+
   // ── Auto-resize textarea ─────────────────────────────────────────────────
   useEffect(() => {
     const ta = textareaRef.current;
@@ -366,6 +372,7 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
     const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi;
     let match;
     let hasAction = false;
+    let hasSendEmail = false;
     while ((match = jsonBlockRegex.exec(content)) !== null) {
       try {
         const parsed = JSON.parse(match[1]);
@@ -380,11 +387,17 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
         } else if (parsed.action === 'CREATE_TEAM_MEMBER' && parsed.member) {
           addTeamMember({ ...parsed.member, status: 'online', workload: 'medium', taskCompletion: 0, currentKPI: 'Onboarding', tasksCompleted: 0, tasksTotal: 0, metrics: { productivity: 100, responseTime: '1h', projectsActive: 1 } });
           hasAction = true;
+        } else if (parsed.action === 'SEND_EMAIL' && parsed.email) {
+          // Don't send immediately — show a confirmation card
+          setPendingEmail({ to: parsed.email.to, subject: parsed.email.subject, body: parsed.email.body });
+          hasSendEmail = true;
+          hasAction = true;
         }
       } catch (_) {}
     }
     let clean = content.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/gi, '').trim();
-    if (!clean && hasAction) clean = '✅ Done!';
+    if (hasSendEmail) clean = (clean ? clean + '\n\n' : '') + '📧 Ready to send. Review and confirm below.';
+    else if (!clean && hasAction) clean = '✅ Done!';
     if (!clean && !hasAction) clean = 'I processed your request.';
     return clean;
   };
@@ -683,6 +696,24 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
                 </div>
                 <h1 className="text-3xl font-bold mb-2" style={{ color: '#f1f5f9' }}>{greeting}</h1>
                 <p className="text-base" style={{ color: '#475569' }}>How can I assist you today?</p>
+
+                {/* Gmail connection badge */}
+                <div className="flex justify-center mt-4">
+                  {gmailEmail ? (
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+                      style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80' }}>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Gmail connected · {gmailEmail}
+                    </div>
+                  ) : (
+                    <a href="#email"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                      style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8' }}
+                    >
+                      <ExternalLink className="w-3 h-3" /> Connect Gmail to send emails
+                    </a>
+                  )}
+                </div>
               </motion.div>
 
               {/* Center input on welcome */}
@@ -798,6 +829,78 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
                             >
                               <RefreshCw className="w-3 h-3" /> Regenerate
                             </motion.button>
+                          )}
+
+                          {/* Email confirmation card — shown after SEND_EMAIL action */}
+                          {isLastAssistant && pendingEmail && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+                              className="mt-3 rounded-2xl overflow-hidden self-stretch"
+                              style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}
+                            >
+                              <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid rgba(99,102,241,0.12)', background: 'rgba(99,102,241,0.08)' }}>
+                                <Mail className="w-4 h-4" style={{ color: '#818cf8' }} />
+                                <span className="text-xs font-semibold" style={{ color: '#a5b4fc' }}>Email Draft — Review before sending</span>
+                              </div>
+                              <div className="px-4 py-3 space-y-2 text-xs" style={{ color: '#94a3b8' }}>
+                                <div><span className="font-medium" style={{ color: '#e2e8f0' }}>To:</span> {pendingEmail.to}</div>
+                                <div><span className="font-medium" style={{ color: '#e2e8f0' }}>Subject:</span> {pendingEmail.subject}</div>
+                                <div className="pt-1" style={{ color: '#cbd5e1', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{pendingEmail.body}</div>
+                              </div>
+                              {emailSentMsg ? (
+                                <div className="px-4 py-3 text-xs font-medium flex items-center gap-2" style={{ color: '#4ade80', background: 'rgba(34,197,94,0.06)' }}>
+                                  <Check className="w-4 h-4" /> {emailSentMsg}
+                                </div>
+                              ) : (
+                                <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: '1px solid rgba(99,102,241,0.12)' }}>
+                                  {!gmailEmail ? (
+                                    <p className="text-xs" style={{ color: '#f87171' }}>⚠️ Gmail not connected. Go to the Email tab to connect first.</p>
+                                  ) : (
+                                    <>
+                                      <motion.button
+                                        whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                        disabled={sendingEmail}
+                                        onClick={async () => {
+                                          if (!pendingEmail || !gmailEmail) return;
+                                          setSendingEmail(true);
+                                          try {
+                                            const token = localStorage.getItem('authToken');
+                                            const r = await fetch(`${API_BASE}/api/ama/send-email`, {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                                              body: JSON.stringify({ gmailEmail, ...pendingEmail }),
+                                            });
+                                            const d = await r.json();
+                                            if (r.ok) {
+                                              setEmailSentMsg(`✅ Sent to ${pendingEmail.to}`);
+                                              setPendingEmail(null);
+                                            } else {
+                                              setEmailSentMsg(`❌ ${d.message || 'Send failed'}`);
+                                            }
+                                          } catch (e: any) {
+                                            setEmailSentMsg(`❌ Network error: ${e.message}`);
+                                          } finally {
+                                            setSendingEmail(false);
+                                          }
+                                        }}
+                                        className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                                        style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', color: '#fff' }}
+                                      >
+                                        {sendingEmail ? 'Sending…' : '🚀 Send Email'}
+                                      </motion.button>
+                                      <motion.button
+                                        whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                        onClick={() => { setPendingEmail(null); setEmailSentMsg(''); }}
+                                        className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all"
+                                        style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+                                      >
+                                        Cancel
+                                      </motion.button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </motion.div>
                           )}
                         </div>
                       </motion.div>
