@@ -170,17 +170,26 @@ app.use(enforceHttps);
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
-  'http://127.0.0.1:5173'
+  'http://127.0.0.1:5173',
+  'https://ama-frontend-8efz.onrender.com'
 ].filter(Boolean);
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  // Dynamically support any Render deployment / preview subdomains safely
+  if (origin.endsWith('.onrender.com')) return true;
+  return false;
+};
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       logStructured('SECURITY', 'CORS_BLOCKED', { origin, ip: origin });
-      callback(new Error('Blocked by CORS policy'));
+      callback(null, false); // Safe standard CORS preflight rejection
     }
   },
   credentials: true,
