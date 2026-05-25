@@ -148,6 +148,35 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 // ── Typing indicator ──────────────────────────────────────────────────────────
+// ── Per-message copy button (proper React state) ──────────────────────────────
+function MsgCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="mt-2 flex justify-end">
+      <button
+        onClick={handleCopy}
+        className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all opacity-0 group-hover:opacity-100"
+        style={{
+          color: copied ? '#4ade80' : '#94a3b8',
+          background: copied ? 'rgba(74,222,128,0.08)' : 'rgba(255,255,255,0.05)',
+        }}
+        title="Copy response"
+      >
+        {copied
+          ? <><Check className="w-3 h-3" /> Copied!</>
+          : <><Copy className="w-3 h-3" /> Copy</>
+        }
+      </button>
+    </div>
+  );
+}
+
 function TypingIndicator() {
   return (
     <div className="flex items-center gap-1.5 px-1 py-2">
@@ -308,13 +337,26 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     const todayEvents = events.filter(e => (e.date || todayISO) === todayISO);
 
     const stylePrompt = aiSettings?.communicationStyle === 'Professional'
-      ? 'You are professional, formal, and highly structured.'
+      ? 'You are professional, formal, and highly structured in your responses.'
       : aiSettings?.communicationStyle === 'Casual'
-      ? 'You are casual, friendly, and conversational.'
-      : 'You are concise, direct, and use minimal words.';
+      ? 'You are casual, warm, friendly, and conversational.'
+      : 'You are balanced, warm, direct, and naturally conversational.';
 
-    return `You are Ama, a world-class AI Chief of Staff. ${stylePrompt}
-You are concise, highly accurate, and professional. Use structured Markdown, avoid fluff, and prioritize being helpful above all else.
+    return `You are Ama, a sophisticated and helpful AI Chief of Staff. ${stylePrompt}
+You use structured Markdown (bold, lists, code blocks, tables) to make responses clear and scannable.
+
+❌ BANNED PHRASES — NEVER say any of these:
+- "I processed your request"
+- "I have noted your request"
+- "I will take care of that"
+- "Understood, I will proceed"
+- Any similarly hollow, non-answer acknowledgment.
+
+✅ ALWAYS respond with real content:
+- Questions → answer them fully and directly.
+- Creative tasks (joke, poem, story, email draft) → write the content immediately.
+- Action requests → write a friendly 1-sentence confirmation FIRST, then the JSON block below.
+- Explanations → explain clearly with examples.
 
 LIVE CONTEXT (${now}):
 - User: ${user?.name || 'Executive'} (${user?.email || ''})
@@ -322,58 +364,36 @@ LIVE CONTEXT (${now}):
 - Events today: ${todayEvents.length}
 - Team members: ${team.length}
 
-IMPORTANT: If the user asks you to create a task, you MUST include this EXACT JSON block anywhere in your response:
+ACTION BLOCKS — Only include when the user EXPLICITLY requests an action. Regular questions and conversation must NEVER produce JSON.
+
+To create a task — friendly reply first, then:
 \`\`\`json
-{
-  "action": "CREATE_TASK",
-  "task": {
-    "title": "Task title",
-    "description": "Short description",
-    "priority": "high" | "medium" | "low",
-    "dueDate": "YYYY-MM-DD"
-  }
-}
+{ "action": "CREATE_TASK", "task": { "title": "Task title", "description": "Short description", "priority": "high|medium|low", "dueDate": "YYYY-MM-DD" } }
 \`\`\`
 
-If the user asks you to schedule an event/meeting, you MUST include this EXACT JSON block:
+To create a meeting/event — friendly reply first, then:
 \`\`\`json
-{
-  "action": "CREATE_EVENT",
-  "event": {
-    "title": "Meeting title",
-    "time": "10:00 AM",
-    "duration": "1h",
-    "type": "meeting",
-    "location": "Online / Room",
-    "attendees": 2,
-    "date": "YYYY-MM-DD"
-  }
-}
+{ "action": "CREATE_EVENT", "event": { "title": "Meeting title", "time": "10:00 AM", "duration": "1h", "type": "meeting", "location": "Online", "attendees": 2, "date": "YYYY-MM-DD" } }
 \`\`\`
 
-If the user asks you to add or invite a team member, you MUST include this EXACT JSON block:
+To add a team member — friendly reply first, then:
 \`\`\`json
-{
-  "action": "CREATE_TEAM_MEMBER",
-  "member": {
-    "name": "Full Name",
-    "role": "Job Title",
-    "department": "Department",
-    "email": "email@example.com"
-  }
-}
+{ "action": "CREATE_TEAM_MEMBER", "member": { "name": "Full Name", "role": "Job Title", "department": "Department", "email": "email@example.com" } }
 \`\`\`
 
-CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
+Always provide exact values. Never use placeholder ranges.`;
   };
 
   // ── Action parser ────────────────────────────────────────────────────────
   const parseAndExecuteActions = (content: string) => {
-    const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi;
+    // Only match JSON blocks that contain a known "action" key — avoids stripping regular code examples
+    const actionBlockRegex = /```(?:json)?\s*(\{[\s\S]*?"action"\s*:[\s\S]*?\})\s*```/gi;
     let match;
     let hasAction = false;
     let hasSendEmail = false;
-    while ((match = jsonBlockRegex.exec(content)) !== null) {
+
+    const regex = /```(?:json)?\s*(\{[\s\S]*?"action"\s*:[\s\S]*?\})\s*```/gi;
+    while ((match = regex.exec(content)) !== null) {
       try {
         const parsed = JSON.parse(match[1]);
         if (parsed.action === 'CREATE_TASK' && parsed.task) {
@@ -388,18 +408,23 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
           addTeamMember({ ...parsed.member, status: 'online', workload: 'medium', taskCompletion: 0, currentKPI: 'Onboarding', tasksCompleted: 0, tasksTotal: 0, metrics: { productivity: 100, responseTime: '1h', projectsActive: 1 } });
           hasAction = true;
         } else if (parsed.action === 'SEND_EMAIL' && parsed.email) {
-          // Don't send immediately — show a confirmation card
           setPendingEmail({ to: parsed.email.to, subject: parsed.email.subject, body: parsed.email.body });
           hasSendEmail = true;
           hasAction = true;
         }
       } catch (_) {}
     }
-    let clean = content.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/gi, '').trim();
-    if (hasSendEmail) clean = (clean ? clean + '\n\n' : '') + '📧 Ready to send. Review and confirm below.';
-    else if (!clean && hasAction) clean = '✅ Done!';
-    if (!clean && !hasAction) clean = 'I processed your request.';
-    return clean;
+
+    // Strip ONLY action blocks from the visible text; leave regular code blocks intact
+    let clean = content.replace(/```(?:json)?\s*\{[\s\S]*?"action"\s*:[\s\S]*?\}\s*```/gi, '').trim();
+
+    // Append action confirmations BELOW the conversational text
+    if (hasSendEmail) clean = (clean ? clean + '\n\n' : '') + '\ud83d\udce7 **Email ready.** Review and confirm the draft below.';
+    else if (hasAction && !clean) clean = '\u2705 Done! I\'ve taken care of that for you.';
+
+    // CRITICAL FIX: Never replace real AI text with a generic placeholder
+    // Return the content as-is if there is any real text
+    return clean || content.trim() || '';
   };
 
   // ── Stop generation ──────────────────────────────────────────────────────
@@ -432,6 +457,7 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
 
     const controller = new AbortController();
     abortRef.current = controller;
+    let accumulated = ''; // Track across try/catch for abort recovery
 
     try {
       const token = localStorage.getItem('authToken');
@@ -456,10 +482,10 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let accumulated = '';
       let buffer = '';
+      let streamDone = false;
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -470,7 +496,7 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith('data:')) continue;
           const payload = trimmed.slice(5).trim();
-          if (payload === '[DONE]') break;
+          if (payload === '[DONE]') { streamDone = true; break; }
           try {
             const parsed = JSON.parse(payload);
             if (parsed.error) throw new Error(parsed.error);
@@ -484,17 +510,16 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
         }
       }
 
-      // Stream complete — parse actions and save
-      const finalContent = parseAndExecuteActions(accumulated || 'I processed your request.');
+      // Stream complete — parse actions, preserve ALL real AI text
+      const finalContent = parseAndExecuteActions(accumulated);
       setStreamingContent('');
-      updateSessionMessages(currentId as string, [...history, { role: 'assistant', content: finalContent }], userText || 'New Chat');
+      updateSessionMessages(currentId as string, [...history, { role: 'assistant', content: finalContent || accumulated || 'No response received.' }], userText || 'New Chat');
 
     } catch (err: any) {
       setStreamingContent('');
       if (err.name === 'AbortError') {
-        // User stopped — save partial content if any
-        const partial = (err as any).partial || '';
-        const saved = partial || '⏹️ Generation stopped.';
+        // User stopped — save whatever was streamed so far
+        const saved = accumulated.trim() || '⏹️ Generation stopped.';
         updateSessionMessages(currentId as string, [...history, { role: 'assistant', content: saved }], userText || 'New Chat');
       } else {
         updateSessionMessages(currentId as string, [...history, {
@@ -511,11 +536,15 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
   // ── Regenerate last response ─────────────────────────────────────────────
   const regenerate = () => {
     if (!messages.length || isLoading) return;
-    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    if (!lastUserMsg) return;
-    // Strip last assistant message then resend
-    const withoutLastAssistant = messages.slice(0, -1);
-    if (activeSessionId) updateSessionMessages(activeSessionId, withoutLastAssistant, lastUserMsg.content);
+    // Find the last user message
+    const lastUserIdx = [...messages].map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+    if (lastUserIdx === undefined) return;
+    const lastUserMsg = messages[lastUserIdx];
+    // Strip history back to the user message
+    const trimmed = messages.slice(0, lastUserIdx);
+    setPendingEmail(null);
+    setEmailSentMsg('');
+    if (activeSessionId) updateSessionMessages(activeSessionId, trimmed, lastUserMsg.content);
     setTimeout(() => sendMessage(lastUserMsg.content), 50);
   };
 
@@ -785,7 +814,7 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
                             <Sparkles className="w-3.5 h-3.5 text-white" />
                           </div>
                         )}
-                        <div className="flex flex-col gap-1 max-w-[85%]">
+                        <div className="flex flex-col gap-1 max-w-[85%] group">
                           <div
                             className={`rounded-2xl ${msg.role === 'user' ? 'px-4 py-3' : 'px-5 py-4'}`}
                             style={msg.role === 'user' ? {
@@ -814,6 +843,11 @@ CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
                                   </div>
                                 ))}
                               </div>
+                            )}
+                            
+                            {/* Message-level copy button for AI responses */}
+                            {msg.role === 'assistant' && (
+                              <MsgCopyButton content={msg.content} />
                             )}
                           </div>
 

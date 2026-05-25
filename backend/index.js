@@ -1283,29 +1283,20 @@ app.post('/api/ama/chat/stream', optionalAuth, async (req, res) => {
     name: userContext?.name || user?.name || 'User',
     company: userContext?.company || user?.company || '',
   };
-  let systemContext = clientSystemPrompt ||
-    `You are Ama, a world-class AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, and professional. Use structured Markdown, avoid fluff, and prioritize being helpful above all else.`;
+  // If the frontend sent a full system prompt, use it directly — it already contains
+  // banned phrases, conversational rules, and action block schemas.
+  // Only build a default if no client prompt was provided.
+  let systemContext;
+  if (clientSystemPrompt) {
+    systemContext = clientSystemPrompt;
+  } else {
+    systemContext = `You are Ama, a sophisticated and helpful AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, and professional. Use structured Markdown. DO NOT use generic phrases like "I processed your request" — always give a real, helpful answer.
 
-  systemContext += `\n\nIMPORTANT SCHEDULING RULES:\n- When a user asks to schedule a meeting or create a task, immediately output the EXACT JSON block without asking clarifying questions.\n- Use reasonable defaults if information is missing.`;
-
-  // Slot-filling instructions — minimalist one-question-at-a-time mode
-  systemContext += `\n\nSLOT-FILLING RULES (CRITICAL):
-- When the user wants to draft an email, schedule a meeting, or complete a task that needs more info:
-  * Ask ONLY ONE short, direct question at a time. Never ask multiple questions at once.
-  * Do NOT explain your reasoning or say what you are doing. Just ask the question.
-  * Once you have all required info (to, subject, body for email OR title, date, time for meeting), output the final result.
-- When you have gathered all info for an email draft and the user confirms, output this EXACT JSON block:
-\`\`\`json
-{
-  "action": "SEND_EMAIL",
-  "email": {
-    "to": "recipient@example.com",
-    "subject": "Email subject",
-    "body": "Full email body text"
+SCHEDULING RULES:
+- When a user asks to schedule a meeting or create a task, use reasonable defaults if info is missing.
+- For email drafting, ask one short question at a time until you have to/subject/body.
+- When all email info is gathered and user confirms, output a SEND_EMAIL JSON block.`;
   }
-}
-\`\`\`
-- ONLY output the SEND_EMAIL block when the user has explicitly confirmed they want to send it.`;
 
   let fullReply = '';
 
