@@ -752,11 +752,11 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
 
     // Generate new code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const emailVerificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
     const updates = {
       emailVerificationCode: verificationCode,
-      emailVerificationCodeExpires
+      emailVerificationCodeExpires: verificationCodeExpires
     };
 
     if (db) {
@@ -765,13 +765,14 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
       Object.assign(foundUser, updates);
     }
 
-    // Send transactional verification email via Resend (with fail-safe fallback)
+    // Send email via Resend — surface a real error if it fails so the client knows
     try {
       await sendVerificationEmail(email, verificationCode);
       logStructured('INFO', 'EMAIL_VERIFICATION_RESENT_SUCCESS', { email });
     } catch (emailErr) {
-      console.error('❌ Failed to resend verification email via Resend:', emailErr.message);
-      console.log('📋 FALLBACK — NEW VERIFICATION CODE:', verificationCode);
+      console.error('❌ Resend failed in /resend-verification:', emailErr.message);
+      console.log('📋 FALLBACK — VERIFICATION CODE FOR', email, ':', verificationCode);
+      return res.status(500).json({ message: 'Failed to send verification email. Please try again.' });
     }
 
     res.status(200).json({ message: 'A new 6-digit verification code has been sent to your email.' });
