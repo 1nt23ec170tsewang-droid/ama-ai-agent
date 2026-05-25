@@ -7,7 +7,7 @@ import Register from "./app/components/Register";
 import ResetPassword from "./app/components/ResetPassword";
 import { AuthProvider, useAuth } from "./app/context/AuthContext";
 import { ToastProvider } from "./app/context/ToastContext";
-import "./styles/index.css";
+
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -76,7 +76,7 @@ root.render(
             <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<RootRedirect />} />
           </Routes>
-        </BrowserRouter>
+        </BrowserRouter>import "./styles/index.css";
       </AuthProvider>
     </ToastProvider>
     {/* --------------------------------------- */}
