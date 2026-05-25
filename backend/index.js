@@ -7,6 +7,36 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const admin = require('firebase-admin');
 const path = require('path');
 const { google } = require('googleapis');
+const crypto = require('crypto');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const { rateLimit } = require('express-rate-limit');
+
+// ──────────────────────────────────────────
+// STRUCTURED LOGGER (JSON SIEM COMPLIANT)
+// ──────────────────────────────────────────
+const logStructured = (level, event, metadata = {}) => {
+  const logMessage = {
+    timestamp: new Date().toISOString(),
+    level: level.toUpperCase(),
+    event,
+    ...metadata
+  };
+  console.log(JSON.stringify(logMessage));
+};
+
+// ──────────────────────────────────────────
+// STRICT ENVIRONMENT GATING (FAIL-FAST)
+// ──────────────────────────────────────────
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'ama_fallback_secret' || process.env.JWT_SECRET === 'ama_chief_of_staff_secret_key') {
+  logStructured('FATAL', 'STARTUP_ERROR', { reason: 'JWT_SECRET environment variable is missing, empty, or insecure.' });
+  process.exit(1);
+}
+if (process.env.JWT_SECRET.length < 32) {
+  logStructured('FATAL', 'STARTUP_ERROR', { reason: 'JWT_SECRET must be at least 32 characters (256 bits) long to prevent brute-forcing.' });
+  process.exit(1);
+}
+
 
 // ──────────────────────────────────────────
 // FIREBASE ADMIN INIT
@@ -117,44 +147,234 @@ async function askAI(prompt, systemPrompt) {
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const SECRET_KEY = process.env.JWT_SECRET || 'ama_fallback_secret';
+const SECRET_KEY = process.env.JWT_SECRET;
+const REFRESH_SECRET_KEY = process.env.JWT_REFRESH_SECRET || (SECRET_KEY + '_refresh_rotation_key');
 
 // ──────────────────────────────────────────
-// MIDDLEWARE
+// SECURITY HEADERS & HTTPS GATING
 // ──────────────────────────────────────────
-app.use(cors({ origin: '*' }));
+app.use(helmet());
+
+const enforceHttps = (req, res, next) => {
+  if (process.env.NODE_ENV === 'production' && req.headers['x-forwarded-proto'] !== 'https') {
+    logStructured('WARN', 'HTTP_REDIRECT', { ip: req.ip, url: req.originalUrl });
+    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  }
+  next();
+};
+app.use(enforceHttps);
+
+// ──────────────────────────────────────────
+// DYNAMIC CORS CONFIGURATION
+// ──────────────────────────────────────────
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      logStructured('SECURITY', 'CORS_BLOCKED', { origin, ip: origin });
+      callback(new Error('Blocked by CORS policy'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200
+}));
+
 app.use(express.json());
+app.use(cookieParser());
+
+// ──────────────────────────────────────────
+// SLIDING-WINDOW RATE LIMITERS
+// ──────────────────────────────────────────
+// 1. Global API Guard
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes.' },
+  handler: (req, res, next, options) => {
+    logStructured('SECURITY', 'RATE_LIMIT_BLOCKED', { ip: req.ip, path: req.path, type: 'global' });
+    res.status(429).json(options.message);
+  }
+});
+app.use('/api/', globalLimiter);
+
+// 2. Strict Auth Guard (Brute-Force & Bot account prevention)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login or registration attempts. Please try again after 15 minutes.' },
+  handler: (req, res, next, options) => {
+    logStructured('SECURITY', 'RATE_LIMIT_BLOCKED', { ip: req.ip, path: req.path, type: 'auth', email: req.body?.email });
+    res.status(429).json(options.message);
+  }
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
+// 3. AI & Cost Guard
+const aiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many AI requests. Please space out your AI requests to prevent resource drain.' },
+  handler: (req, res, next, options) => {
+    logStructured('SECURITY', 'RATE_LIMIT_BLOCKED', { ip: req.ip, path: req.path, type: 'ai', userId: req.user?.id });
+    res.status(429).json(options.message);
+  }
+});
+app.use('/api/ama', aiLimiter);
+
+// 4. Mailer Guard (Password Resets & Verifications)
+const mailerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many verification or reset requests. Please wait 15 minutes before trying again.' },
+  handler: (req, res, next, options) => {
+    logStructured('SECURITY', 'RATE_LIMIT_BLOCKED', { ip: req.ip, path: req.path, type: 'mailer', email: req.body?.email });
+    res.status(429).json(options.message);
+  }
+});
+app.use('/api/auth/forgot-password', mailerLimiter);
+app.use('/api/auth/reset-password', mailerLimiter);
+app.use('/api/auth/resend-verification', mailerLimiter);
 
 // In-memory fallback if Firestore is not configured
 const inMemoryUsers = [];
+const inMemoryRefreshTokens = []; // Track RTR tokens in-memory
 
 // ──────────────────────────────────────────
-// JWT MIDDLEWARE
+// STRICT INPUT SANITIZATION (NoSQL Guard)
+// ──────────────────────────────────────────
+const sanitizeInput = (val) => {
+  if (val === undefined || val === null) return '';
+  return String(val).trim();
+};
+
+// ──────────────────────────────────────────
+// JWT AUTHENTICATION MIDDLEWARES
 // ──────────────────────────────────────────
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  let token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token && req.cookies) {
+    token = req.cookies.token;
+  }
+  
   if (!token) return res.status(401).json({ message: 'Access Denied: No token provided.' });
-  jwt.verify(token, SECRET_KEY, (err, user) => {
-    if (err) return res.status(403).json({ message: 'Invalid or Expired Token.' });
+  
+  jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] }, (err, user) => {
+    if (err) {
+      logStructured('WARN', 'INVALID_ACCESS_TOKEN', { ip: req.ip, error: err.message });
+      return res.status(403).json({ message: 'Invalid or Expired Token.' });
+    }
     req.user = user;
     next();
   });
 };
 
-// Optional auth: attaches user if token present, but always calls next()
 const optionalAuth = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  let token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token && req.cookies) {
+    token = req.cookies.token;
+  }
+  
   if (!token) {
     req.user = { id: 'guest', name: 'User', email: '', company: '', role: '' };
     return next();
   }
-  jwt.verify(token, SECRET_KEY, (err, user) => {
+  
+  jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] }, (err, user) => {
     req.user = err ? { id: 'guest', name: 'User', email: '', company: '', role: '' } : user;
     next();
   });
 };
+
+// ──────────────────────────────────────────
+// ROLE-BASED ACCESS CONTROL (RBAC)
+// ──────────────────────────────────────────
+const requireRole = (allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ message: 'Access Denied: Unauthenticated.' });
+    if (!allowedRoles.includes(req.user.role)) {
+      logStructured('SECURITY', 'UNAUTHORIZED_ROLE_ACCESS', { ip: req.ip, userId: req.user.id, role: req.user.role, allowedRoles });
+      return res.status(403).json({ message: 'Access Denied: Insufficient permissions.' });
+    }
+    next();
+  };
+};
+
+const requireAdmin = requireRole(['admin']);
+
+// ──────────────────────────────────────────
+// GLOBAL IDOR GATING MIDDLEWARE
+// ──────────────────────────────────────────
+const checkDocOwnership = (collectionName, userIdField = 'userId') => {
+  return async (req, res, next) => {
+    try {
+      const docId = sanitizeInput(req.params.id);
+      if (!docId) return res.status(400).json({ message: 'Resource ID is required.' });
+
+      if (!db) {
+        // Fallback for in-memory mode: let the route handlers verify array elements
+        return next();
+      }
+
+      const doc = await db.collection(collectionName).doc(docId).get();
+      if (!doc.exists) return res.status(404).json({ message: 'Resource not found.' });
+
+      const data = doc.data();
+      if (data[userIdField] !== req.user.id) {
+        logStructured('SECURITY', 'IDOR_ATTEMPT_BLOCKED', { ip: req.ip, userId: req.user.id, docId, collection: collectionName });
+        return res.status(403).json({ message: 'Access Denied: You do not own this resource.' });
+      }
+
+      req.resourceData = { id: doc.id, ...data };
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+};
+
+// ──────────────────────────────────────────
+// EMAIL OWNERSHIP GATING FOR EXTERNAL APIS (GMAIL/CALENDAR)
+// ──────────────────────────────────────────
+const requireEmailOwnership = (req, res, next) => {
+  const email = req.query.email || req.body.email;
+  if (!email) {
+    return res.status(400).json({ message: 'Email parameter is required.' });
+  }
+  if (String(email).toLowerCase() !== req.user.email.toLowerCase()) {
+    logStructured('SECURITY', 'UNAUTHORIZED_EMAIL_ACCESS_ATTEMPT', {
+      ip: req.ip,
+      userId: req.user.id,
+      requestedEmail: email,
+      userEmail: req.user.email
+    });
+    return res.status(403).json({ message: 'Access Denied: You do not own this connected email account.' });
+  }
+  next();
+};
+
 
 // ──────────────────────────────────────────
 // HELPER: Call Gemini safely with retry + backoff (fallback)
@@ -205,48 +425,92 @@ app.get('/health', (req, res) => {
 // AUTH ROUTES
 // ══════════════════════════════════════════
 
-app.post('/api/auth/register', async (req, res) => {
+// Helper: Password Complexity Validator
+const validatePassword = (pwd) => {
+  if (pwd.length < 8) return 'Password must be at least 8 characters long.';
+  if (!/[A-Z]/.test(pwd)) return 'Password must contain at least one uppercase letter.';
+  if (!/[a-z]/.test(pwd)) return 'Password must contain at least one lowercase letter.';
+  if (!/[0-9]/.test(pwd)) return 'Password must contain at least one number.';
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) return 'Password must contain at least one special character.';
+  return null;
+};
+
+// ──────────────────────────────────────────
+// AUTH ENDPOINTS
+// ──────────────────────────────────────────
+
+app.post('/api/auth/register', async (req, res, next) => {
   try {
-    const { name, password, company, role } = req.body;
-    const email = (req.body.email || '').toLowerCase().trim();
+    const name = sanitizeInput(req.body.name);
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const password = sanitizeInput(req.body.password);
+    const company = sanitizeInput(req.body.company);
+    const role = sanitizeInput(req.body.role || 'user'); // Default to standard user
+
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email and password are required.' });
     }
 
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return res.status(400).json({ message: passwordError });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userData = { id: Date.now().toString(), name, email, company: company || '', role: role || '', createdAt: new Date().toISOString() };
+    
+    // Generate 6-digit email verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+
+    const userData = { 
+      id: Date.now().toString(), 
+      name, 
+      email, 
+      company, 
+      role, 
+      isEmailVerified: false,
+      emailVerificationCode: verificationCode,
+      emailVerificationCodeExpires,
+      createdAt: new Date().toISOString() 
+    };
 
     if (db) {
-      // Check existing user in Firestore
       const existing = await db.collection('users').where('email', '==', email).get();
       if (!existing.empty) return res.status(400).json({ message: 'User already exists.' });
 
       await db.collection('users').doc(userData.id).set({ ...userData, password: hashedPassword });
-      console.log(`✅ Registered user: ${email}`);
     } else {
-      // In-memory fallback
       if (inMemoryUsers.find(u => u.email === email)) {
         return res.status(400).json({ message: 'User already exists.' });
       }
       inMemoryUsers.push({ ...userData, password: hashedPassword });
     }
 
-    const token = jwt.sign({ id: userData.id, email, name, company: company || '', role: role || '' }, SECRET_KEY, { expiresIn: '7d' });
-    res.status(201).json({ message: 'Registration successful', token, user: { id: userData.id, name, email, company, role } });
+    logStructured('INFO', 'USER_REGISTERED', { userId: userData.id, email, role });
+    // Log the email verification link/code (Transactional email mock)
+    logStructured('SECURITY', 'EMAIL_VERIFICATION_SENT', { 
+      email, 
+      code: verificationCode, 
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?email=${encodeURIComponent(email)}&code=${verificationCode}` 
+    });
+
+    res.status(201).json({ 
+      message: 'Registration successful. A 6-digit verification code has been sent to your email.',
+      email
+    });
   } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({ message: 'Server error during registration.', error: error.message });
+    next(error);
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', async (req, res, next) => {
   try {
-    const { password } = req.body;
-    const email = (req.body.email || '').toLowerCase().trim();
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const password = sanitizeInput(req.body.password);
+
     if (!email || !password) return res.status(400).json({ message: 'Email and password required.' });
 
     let foundUser = null;
-
     if (db) {
       const snap = await db.collection('users').where('email', '==', email).get();
       if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
@@ -255,63 +519,583 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (!foundUser) {
-      console.warn(`⚠️ Login failed — user not found: ${email}`);
-      return res.status(400).json({ message: 'No account found with this email. Please register first.' });
+      logStructured('WARN', 'LOGIN_FAILED_USER_NOT_FOUND', { ip: req.ip, email });
+      return res.status(400).json({ message: 'Incorrect email or password.' });
     }
 
     const isMatch = await bcrypt.compare(password, foundUser.password);
     if (!isMatch) {
-      console.warn(`⚠️ Login failed — wrong password for: ${email}`);
-      return res.status(400).json({ message: 'Incorrect password. Please try again.' });
+      logStructured('WARN', 'LOGIN_FAILED_WRONG_PASSWORD', { ip: req.ip, email, userId: foundUser.id });
+      return res.status(400).json({ message: 'Incorrect email or password.' });
+    }
+
+    // Intercept if email is unverified
+    if (!foundUser.isEmailVerified) {
+      logStructured('SECURITY', 'LOGIN_BLOCKED_EMAIL_UNVERIFIED', { ip: req.ip, email, userId: foundUser.id });
+      return res.status(403).json({ 
+        message: 'Your email address is not verified. Please verify your email first.',
+        unverified: true,
+        email
+      });
     }
 
     // Update last login
     if (db) {
       await db.collection('users').doc(foundUser.id).update({ lastLogin: new Date().toISOString() });
+    } else {
+      foundUser.lastLogin = new Date().toISOString();
     }
 
-    console.log(`✅ Login success: ${email}`);
-    const token = jwt.sign(
+    // Generate JWT access & refresh tokens (RTR)
+    const accessToken = jwt.sign(
       { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
       SECRET_KEY,
-      { expiresIn: '7d' }
+      { expiresIn: '15m', algorithm: 'HS256' }
     );
+
+    const refreshToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(refreshTokenHash).set({
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: refreshTokenHash,
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    // Set refresh token in HttpOnly Cookie (path protected to refresh)
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    logStructured('INFO', 'LOGIN_SUCCESS', { userId: foundUser.id, email: foundUser.email });
 
     res.status(200).json({
       message: 'Login successful',
-      token,
+      token: accessToken,
       user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login.', error: error.message });
+    next(error);
   }
 });
 
-app.get('/api/auth/me', authenticateToken, async (req, res) => {
+// ──────────────────────────────────────────
+// EMAIL VERIFICATION ROUTES
+// ──────────────────────────────────────────
+
+app.post('/api/auth/verify-email', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const code = sanitizeInput(req.body.code);
+
+    if (!email || !code) return res.status(400).json({ message: 'Email and 6-digit code are required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser) return res.status(404).json({ message: 'User not found.' });
+
+    if (foundUser.isEmailVerified) return res.status(400).json({ message: 'Email is already verified.' });
+
+    // Validate verification code
+    if (foundUser.emailVerificationCode !== code) {
+      logStructured('WARN', 'EMAIL_VERIFICATION_FAILED_WRONG_CODE', { ip: req.ip, email, code });
+      return res.status(400).json({ message: 'Incorrect verification code.' });
+    }
+
+    const now = new Date().toISOString();
+    if (foundUser.emailVerificationCodeExpires < now) {
+      logStructured('WARN', 'EMAIL_VERIFICATION_FAILED_EXPIRED_CODE', { ip: req.ip, email });
+      return res.status(400).json({ message: 'Verification code has expired. Please request a new one.' });
+    }
+
+    // Mark as verified, wipe token
+    const updates = {
+      isEmailVerified: true,
+      emailVerificationCode: null,
+      emailVerificationCodeExpires: null
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+    } else {
+      Object.assign(foundUser, updates);
+    }
+
+    logStructured('SECURITY', 'EMAIL_VERIFIED_SUCCESS', { userId: foundUser.id, email });
+
+    // Automatically log user in upon successful email verification
+    const accessToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
+      SECRET_KEY,
+      { expiresIn: '15m', algorithm: 'HS256' }
+    );
+
+    const refreshToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(refreshTokenHash).set({
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: refreshTokenHash,
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(200).json({
+      message: 'Email successfully verified. You are now logged in.',
+      token: accessToken,
+      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/resend-verification', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    if (!email) return res.status(400).json({ message: 'Email is required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser) return res.status(404).json({ message: 'User not found.' });
+    if (foundUser.isEmailVerified) return res.status(400).json({ message: 'Email is already verified.' });
+
+    // Generate new code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const updates = {
+      emailVerificationCode: verificationCode,
+      emailVerificationCodeExpires
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+    } else {
+      Object.assign(foundUser, updates);
+    }
+
+    logStructured('SECURITY', 'EMAIL_VERIFICATION_RESENT', { 
+      email, 
+      code: verificationCode,
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?email=${encodeURIComponent(email)}&code=${verificationCode}` 
+    });
+
+    res.status(200).json({ message: 'A new 6-digit verification code has been sent to your email.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// JWT SILENT REFRESH (RTR & REPLAY PROTECTION)
+// ──────────────────────────────────────────
+
+app.post('/api/auth/refresh', async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(401).json({ message: 'Refresh token missing.' });
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, REFRESH_SECRET_KEY, { algorithms: ['HS256'] });
+    } catch (err) {
+      logStructured('WARN', 'INVALID_REFRESH_TOKEN', { ip: req.ip, error: err.message });
+      return res.status(401).json({ message: 'Invalid refresh token.' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+
+    let storedToken = null;
+    if (db) {
+      const snap = await db.collection('refresh_tokens').doc(tokenHash).get();
+      if (snap.exists) storedToken = snap.data();
+    } else {
+      storedToken = inMemoryRefreshTokens.find(t => t.tokenHash === tokenHash);
+    }
+
+    if (!storedToken) {
+      logStructured('WARN', 'UNKNOWN_REFRESH_TOKEN', { ip: req.ip, tokenHash });
+      return res.status(401).json({ message: 'Session not found.' });
+    }
+
+    // Replay / Token Reuse Detection
+    if (storedToken.rotated) {
+      logStructured('SECURITY', 'JWT_REPLAY_ATTACK_DETECTED', { ip: req.ip, userId: decoded.id, tokenHash });
+
+      // Attack detected! Immediately revoke ALL refresh tokens for this user
+      if (db) {
+        const snap = await db.collection('refresh_tokens').where('userId', '==', decoded.id).get();
+        const batch = db.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      } else {
+        for (let i = inMemoryRefreshTokens.length - 1; i >= 0; i--) {
+          if (inMemoryRefreshTokens[i].userId === decoded.id) {
+            inMemoryRefreshTokens.splice(i, 1);
+          }
+        }
+      }
+
+      res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+      return res.status(400).json({ message: 'Security alert: Session replayed. For safety, you must log in again.' });
+    }
+
+    // Mark current token as rotated
+    if (db) {
+      await db.collection('refresh_tokens').doc(tokenHash).update({ rotated: true });
+    } else {
+      storedToken.rotated = true;
+    }
+
+    // Fetch fresh user details
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').doc(decoded.id).get();
+      if (snap.exists) foundUser = { id: snap.id, ...snap.data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.id === decoded.id);
+    }
+
+    if (!foundUser) return res.status(401).json({ message: 'User no longer exists.' });
+
+    // Generate new Access & Rotated Refresh pair
+    const accessToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
+      SECRET_KEY,
+      { expiresIn: '15m', algorithm: 'HS256' }
+    );
+
+    const newRefreshToken = jwt.sign(
+      { id: foundUser.id, email: foundUser.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const newHash = crypto.createHash('sha256').update(newRefreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(newHash).set({
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: newHash,
+        userId: foundUser.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    logStructured('INFO', 'SESSION_REFRESHED', { userId: foundUser.id });
+
+    res.status(200).json({
+      token: accessToken,
+      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// AUTH LOGOUT (REVOCATION)
+// ──────────────────────────────────────────
+
+app.post('/api/auth/logout', async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (refreshToken) {
+      const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+      if (db) {
+        await db.collection('refresh_tokens').doc(tokenHash).delete();
+      } else {
+        const idx = inMemoryRefreshTokens.findIndex(t => t.tokenHash === tokenHash);
+        if (idx !== -1) inMemoryRefreshTokens.splice(idx, 1);
+      }
+      logStructured('INFO', 'SESSION_REVOKED_LOGOUT', { tokenHash });
+    }
+
+    res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+    res.status(200).json({ message: 'Logout successful.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// CRYPTOGRAPHICALLY SECURE PASSWORD RESET ROUTES
+// ──────────────────────────────────────────
+
+app.post('/api/auth/forgot-password', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    if (!email) return res.status(400).json({ message: 'Email address is required.' });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    // Always respond with a generic success message to prevent user enumeration attacks!
+    const genericResponse = { message: 'If an account exists with this email, a secure reset link has been sent.' };
+
+    if (!foundUser) {
+      logStructured('INFO', 'FORGOT_PASSWORD_REQUESTED_UNKNOWN_USER', { email });
+      return res.status(200).json(genericResponse);
+    }
+
+    // Generate secure CSPRNG 256-bit reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const resetExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // Strict 15 minutes
+
+    const updates = {
+      resetPasswordTokenHash: resetTokenHash,
+      resetPasswordTokenExpires: resetExpires
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+    } else {
+      Object.assign(foundUser, updates);
+    }
+
+    logStructured('SECURITY', 'PASSWORD_RESET_TOKEN_CREATED', { userId: foundUser.id, email });
+    // Log secure reset link (Transactional mock)
+    logStructured('SECURITY', 'PASSWORD_RESET_LINK_SENT', {
+      email,
+      link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`
+    });
+
+    res.status(200).json(genericResponse);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res, next) => {
+  try {
+    const email = sanitizeInput(req.body.email).toLowerCase();
+    const token = sanitizeInput(req.body.token);
+    const newPassword = sanitizeInput(req.body.newPassword);
+
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ message: 'Email, token, and new password are required.' });
+    }
+
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) return res.status(400).json({ message: passwordError });
+
+    let foundUser = null;
+    if (db) {
+      const snap = await db.collection('users').where('email', '==', email).get();
+      if (!snap.empty) foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    } else {
+      foundUser = inMemoryUsers.find(u => u.email === email);
+    }
+
+    if (!foundUser || !foundUser.resetPasswordTokenHash) {
+      logStructured('WARN', 'PASSWORD_RESET_ATTEMPT_INVALID_USER', { email });
+      return res.status(400).json({ message: 'Invalid reset attempt or expired token.' });
+    }
+
+    // Validate SHA-256 token hash
+    const inputHash = crypto.createHash('sha256').update(token).digest('hex');
+    if (foundUser.resetPasswordTokenHash !== inputHash) {
+      logStructured('WARN', 'PASSWORD_RESET_ATTEMPT_WRONG_TOKEN', { userId: foundUser.id, email });
+      return res.status(400).json({ message: 'Invalid reset attempt or expired token.' });
+    }
+
+    const now = new Date().toISOString();
+    if (foundUser.resetPasswordTokenExpires < now) {
+      logStructured('WARN', 'PASSWORD_RESET_ATTEMPT_EXPIRED_TOKEN', { userId: foundUser.id, email });
+      return res.status(400).json({ message: 'Invalid reset attempt or expired token.' });
+    }
+
+    // Strict validation succeeded: hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    const updates = {
+      password: hashedPassword,
+      resetPasswordTokenHash: null,
+      resetPasswordTokenExpires: null
+    };
+
+    if (db) {
+      await db.collection('users').doc(foundUser.id).update(updates);
+      
+      // Global Revocation: Delete all active refresh sessions for safety
+      const tokensSnap = await db.collection('refresh_tokens').where('userId', '==', foundUser.id).get();
+      const batch = db.batch();
+      tokensSnap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    } else {
+      Object.assign(foundUser, updates);
+      // In-memory revocation
+      for (let i = inMemoryRefreshTokens.length - 1; i >= 0; i--) {
+        if (inMemoryRefreshTokens[i].userId === foundUser.id) {
+          inMemoryRefreshTokens.splice(i, 1);
+        }
+      }
+    }
+
+    logStructured('SECURITY', 'PASSWORD_RESET_SUCCESS', { userId: foundUser.id, email });
+    res.status(200).json({ message: 'Password reset successful. All other active sessions have been signed out. Please log in.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// ROLE-GATED ADMINISTRATIVE ROUTES
+// ──────────────────────────────────────────
+
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    let allUsers = [];
+    if (db) {
+      const snap = await db.collection('users').get();
+      allUsers = snap.docs.map(doc => {
+        const { password, emailVerificationCode, emailVerificationCodeExpires, resetPasswordTokenHash, resetPasswordTokenExpires, ...safeUser } = doc.data();
+        return safeUser;
+      });
+    } else {
+      allUsers = inMemoryUsers.map(({ password, emailVerificationCode, emailVerificationCodeExpires, resetPasswordTokenHash, resetPasswordTokenExpires, ...safeUser }) => safeUser);
+    }
+
+    logStructured('SECURITY', 'ADMIN_FETCHED_USERS', { adminId: req.user.id });
+    res.json({ users: allUsers });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/system-status', authenticateToken, requireAdmin, async (req, res, next) => {
+  try {
+    const status = {
+      environment: process.env.NODE_ENV || 'development',
+      database: db ? 'connected (Firestore)' : 'active (In-Memory Fallback)',
+      rateLimiters: 'configured & enforcing',
+      activeSessions: db ? 'persisted' : inMemoryRefreshTokens.length,
+      timestamp: new Date().toISOString()
+    };
+    
+    logStructured('SECURITY', 'ADMIN_FETCHED_SYSTEM_STATUS', { adminId: req.user.id });
+    res.json(status);
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+app.get('/api/auth/me', authenticateToken, async (req, res, next) => {
   try {
     let userProfile = req.user;
     if (db) {
       const snap = await db.collection('users').doc(req.user.id).get();
       if (snap.exists) userProfile = { id: snap.id, ...snap.data() };
+    } else {
+      const uMatch = inMemoryUsers.find(u => u.id === req.user.id);
+      if (uMatch) userProfile = uMatch;
     }
-    const { password, ...safeProfile } = userProfile;
+    const { password, emailVerificationCode, emailVerificationCodeExpires, resetPasswordTokenHash, resetPasswordTokenExpires, ...safeProfile } = userProfile;
     res.json({ user: safeProfile });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching profile.' });
+    next(error);
   }
 });
 
-app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+app.put('/api/auth/profile', authenticateToken, async (req, res, next) => {
   try {
-    const { name, company, role } = req.body;
-    const updates = { name, company, role, updatedAt: new Date().toISOString() };
+    const name = sanitizeInput(req.body.name);
+    const company = sanitizeInput(req.body.company);
+    const role = sanitizeInput(req.body.role); // Standard profile edit should only update allowed fields
+
+    if (!name) return res.status(400).json({ message: 'Name is required.' });
+
+    const updates = { name, company, updatedAt: new Date().toISOString() };
     if (db) {
       await db.collection('users').doc(req.user.id).update(updates);
+    } else {
+      const found = inMemoryUsers.find(u => u.id === req.user.id);
+      if (found) Object.assign(found, updates);
     }
+
+    logStructured('INFO', 'PROFILE_UPDATED', { userId: req.user.id });
     res.json({ message: 'Profile updated successfully', user: { ...req.user, ...updates } });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating profile.' });
+    next(error);
   }
 });
 
@@ -623,21 +1407,21 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
+app.put('/api/tasks/:id', authenticateToken, checkDocOwnership('tasks'), async (req, res, next) => {
   try {
     if (db) await db.collection('tasks').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
     res.json({ id: req.params.id, ...req.body });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating task.' });
+    next(error);
   }
 });
 
-app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
+app.delete('/api/tasks/:id', authenticateToken, checkDocOwnership('tasks'), async (req, res, next) => {
   try {
     if (db) await db.collection('tasks').doc(req.params.id).delete();
     res.json({ message: 'Task deleted successfully.' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting task.' });
+    next(error);
   }
 });
 
@@ -668,21 +1452,21 @@ app.post('/api/events', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/events/:id', authenticateToken, async (req, res) => {
+app.put('/api/events/:id', authenticateToken, checkDocOwnership('events'), async (req, res, next) => {
   try {
     if (db) await db.collection('events').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
     res.json({ id: req.params.id, ...req.body });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating event.' });
+    next(error);
   }
 });
 
-app.delete('/api/events/:id', authenticateToken, async (req, res) => {
+app.delete('/api/events/:id', authenticateToken, checkDocOwnership('events'), async (req, res, next) => {
   try {
     if (db) await db.collection('events').doc(req.params.id).delete();
     res.json({ message: 'Event deleted successfully.' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting event.' });
+    next(error);
   }
 });
 
@@ -713,21 +1497,21 @@ app.post('/api/metrics', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/metrics/:id', authenticateToken, async (req, res) => {
+app.put('/api/metrics/:id', authenticateToken, checkDocOwnership('metrics'), async (req, res, next) => {
   try {
     if (db) await db.collection('metrics').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
     res.json({ id: req.params.id, ...req.body });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating metric.' });
+    next(error);
   }
 });
 
-app.delete('/api/metrics/:id', authenticateToken, async (req, res) => {
+app.delete('/api/metrics/:id', authenticateToken, checkDocOwnership('metrics'), async (req, res, next) => {
   try {
     if (db) await db.collection('metrics').doc(req.params.id).delete();
     res.json({ message: 'Metric deleted successfully.' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting metric.' });
+    next(error);
   }
 });
 
@@ -758,21 +1542,21 @@ app.post('/api/team', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/team/:id', authenticateToken, async (req, res) => {
+app.put('/api/team/:id', authenticateToken, checkDocOwnership('team', 'ownerId'), async (req, res, next) => {
   try {
     if (db) await db.collection('team').doc(req.params.id).update({ ...req.body, updatedAt: new Date().toISOString() });
     res.json({ id: req.params.id, ...req.body });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating team member.' });
+    next(error);
   }
 });
 
-app.delete('/api/team/:id', authenticateToken, async (req, res) => {
+app.delete('/api/team/:id', authenticateToken, checkDocOwnership('team', 'ownerId'), async (req, res, next) => {
   try {
     if (db) await db.collection('team').doc(req.params.id).delete();
     res.json({ message: 'Team member removed.' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting team member.' });
+    next(error);
   }
 });
 
@@ -826,9 +1610,9 @@ function makeOAuth2(tokens) {
 }
 
 // GET /api/gmail/auth  — returns the Google OAuth consent URL
-app.get('/api/gmail/auth', (req, res) => {
+app.get('/api/gmail/auth', authenticateToken, (req, res, next) => {
   try {
-    const { login_hint } = req.query;
+    const login_hint = req.user.email;
     const state = Math.random().toString(36).slice(2);
     const url = makeOAuth2().generateAuthUrl({
       access_type: 'offline',
@@ -846,7 +1630,7 @@ app.get('/api/gmail/auth', (req, res) => {
     });
     res.json({ url });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    next(err);
   }
 });
 
@@ -871,7 +1655,7 @@ app.get('/api/gmail/callback', async (req, res) => {
 
 
 // GET /api/gmail/status?email=...
-app.get('/api/gmail/status', (req, res) => {
+app.get('/api/gmail/status', authenticateToken, requireEmailOwnership, (req, res) => {
   const connected = req.query.email ? gmailTokenStore.has(String(req.query.email)) : false;
   res.json({ connected });
 });
@@ -929,9 +1713,8 @@ function parseGmailMessage(msg) {
 }
 
 // GET /api/gmail/messages?email=...&maxResults=20
-app.get('/api/gmail/messages', async (req, res) => {
+app.get('/api/gmail/messages', authenticateToken, requireEmailOwnership, async (req, res, next) => {
   const { email, maxResults = 20 } = req.query;
-  if (!email) return res.status(400).json({ message: 'email param required' });
   const stored = gmailTokenStore.get(String(email));
   if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
 
@@ -944,13 +1727,12 @@ app.get('/api/gmail/messages', async (req, res) => {
     const raw    = await Promise.all(ids.map(id => gmail.users.messages.get({ userId: 'me', id, format: 'full' }).then(r => r.data)));
     res.json({ emails: raw.map(parseGmailMessage) });
   } catch (err) {
-    console.error('Gmail fetch error:', err.message);
-    res.status(500).json({ message: err.message });
+    next(err);
   }
 });
 
 // POST /api/gmail/archive  { email, messageId }
-app.post('/api/gmail/archive', async (req, res) => {
+app.post('/api/gmail/archive', authenticateToken, requireEmailOwnership, async (req, res, next) => {
   const { email, messageId } = req.body;
   const stored = gmailTokenStore.get(email);
   if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
@@ -958,11 +1740,11 @@ app.post('/api/gmail/archive', async (req, res) => {
     const auth = makeOAuth2(stored.tokens);
     await google.gmail({ version: 'v1', auth }).users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['INBOX'] } });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { next(err); }
 });
 
 // POST /api/gmail/read  { email, messageId }
-app.post('/api/gmail/read', async (req, res) => {
+app.post('/api/gmail/read', authenticateToken, requireEmailOwnership, async (req, res, next) => {
   const { email, messageId } = req.body;
   const stored = gmailTokenStore.get(email);
   if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
@@ -970,11 +1752,11 @@ app.post('/api/gmail/read', async (req, res) => {
     const auth = makeOAuth2(stored.tokens);
     await google.gmail({ version: 'v1', auth }).users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['UNREAD'] } });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { next(err); }
 });
 
 // POST /api/gmail/send  { email, to, subject, body, threadId }
-app.post('/api/gmail/send', async (req, res) => {
+app.post('/api/gmail/send', authenticateToken, requireEmailOwnership, async (req, res, next) => {
   const { email, to, subject, body, threadId } = req.body;
   const stored = gmailTokenStore.get(email);
   if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
@@ -983,7 +1765,7 @@ app.post('/api/gmail/send', async (req, res) => {
     const raw  = Buffer.from(`To: ${to}\r\nSubject: Re: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`).toString('base64url');
     await google.gmail({ version: 'v1', auth }).users.messages.send({ userId: 'me', requestBody: { raw, ...(threadId ? { threadId } : {}) } });
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { next(err); }
 });
 
 // ══════════════════════════════════════════
@@ -991,9 +1773,8 @@ app.post('/api/gmail/send', async (req, res) => {
 // ══════════════════════════════════════════
 
 // GET /api/calendar/events?email=...
-app.get('/api/calendar/events', async (req, res) => {
+app.get('/api/calendar/events', authenticateToken, requireEmailOwnership, async (req, res, next) => {
   const { email, timeMin, timeMax } = req.query;
-  if (!email) return res.status(400).json({ message: 'email param required' });
   const stored = gmailTokenStore.get(String(email));
   if (!stored) return res.status(401).json({ message: 'Google account not connected' });
 
@@ -1043,15 +1824,13 @@ app.get('/api/calendar/events', async (req, res) => {
 
     res.json({ events });
   } catch (err) {
-    console.error('Calendar fetch error:', err.message);
-    res.status(500).json({ message: err.message });
+    next(err);
   }
 });
 
 // POST /api/calendar/events
-app.post('/api/calendar/events', async (req, res) => {
+app.post('/api/calendar/events', authenticateToken, requireEmailOwnership, async (req, res, next) => {
   const { email, title, date, time, duration } = req.body;
-  if (!email) return res.status(400).json({ message: 'email param required' });
   const stored = gmailTokenStore.get(String(email));
   if (!stored) return res.status(401).json({ message: 'Google account not connected' });
 
@@ -1088,14 +1867,30 @@ app.post('/api/calendar/events', async (req, res) => {
 
     res.json({ success: true, eventId: response.data.id });
   } catch (err) {
-    console.error('Calendar create error:', err.message);
-    res.status(500).json({ message: err.message });
+    next(err);
   }
 });
 
-// ══════════════════════════════════════════
-// START SERVER
-// ══════════════════════════════════════════
+// ──────────────────────────────────────────
+// CENTRALIZED SANITIZED ERROR MIDDLEWARE
+// ──────────────────────────────────────────
+app.use((err, req, res, next) => {
+  // Log full error details securely on the server-side only
+  logStructured('ERROR', 'API_INTERNAL_ERROR', {
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    message: err.message,
+    stack: err.stack
+  });
+
+  const statusCode = err.status || err.statusCode || 500;
+  
+  res.status(statusCode).json({
+    message: statusCode === 500 ? 'An unexpected error occurred. Please try again later.' : err.message,
+    status: 'error'
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`\n🚀 Ama Backend running at http://localhost:${PORT}`);

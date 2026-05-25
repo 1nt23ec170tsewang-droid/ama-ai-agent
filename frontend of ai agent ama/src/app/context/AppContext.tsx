@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://ama-ai-agent-toxa.vercel.app';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface AmaEvent {

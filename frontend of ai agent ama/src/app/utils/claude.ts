@@ -3,7 +3,9 @@
  * Routes all Claude calls through the backend (env var in prod, localhost in dev).
  */
 
-const BACKEND = (import.meta as any).env?.VITE_API_URL || 'https://ama-ai-agent-toxa.vercel.app';
+import { getActiveToken } from './config';
+
+const BACKEND = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
 export interface ClaudeMessage {
   role: 'user' | 'assistant';
@@ -20,7 +22,7 @@ export async function callClaude(
   messages: ClaudeMessage[],
   options: ClaudeOptions = {}
 ): Promise<string> {
-  const token = localStorage.getItem('authToken');
+  const token = getActiveToken();
 
   const body: Record<string, unknown> = {
     messages,
