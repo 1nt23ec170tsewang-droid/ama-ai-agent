@@ -1,105 +1,299 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   Send, Sparkles, Calendar, Mail, CheckSquare, Bell,
-  Paperclip, X, FileText, Image as ImageIcon, Users, MessageSquare, Trash2, Mic, Menu
+  Paperclip, X, FileText, Image as ImageIcon, Users,
+  MessageSquare, Trash2, Mic, Menu, Square, Copy,
+  Check, RefreshCw, Plus, ChevronDown,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
-import { useEffect } from 'react';
 import { API_BASE } from '../utils/config';
 
+// ── Google Fonts injection ────────────────────────────────────────────────────
+if (!document.getElementById('ama-inter-font')) {
+  const link = document.createElement('link');
+  link.id = 'ama-inter-font';
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap';
+  document.head.appendChild(link);
+}
+
+// ── Suggestion chips ──────────────────────────────────────────────────────────
 const SUGGESTION_CHIPS = [
-  { id: '1', icon: Calendar,       label: 'Schedule a meeting',      prompt: 'Help me schedule a team meeting for next week. What should I consider?' },
-  { id: '2', icon: Mail,           label: 'Draft an email',           prompt: 'Draft a professional follow-up email for a business meeting.' },
-  { id: '3', icon: CheckSquare,    label: 'Create a task plan',       prompt: 'Help me break down a complex project into manageable tasks.' },
-  { id: '4', icon: Users,          label: 'Team 1:1 agenda',          prompt: 'Help me create an agenda for 1:1 meetings with my direct reports.' },
-  { id: '5', icon: MessageSquare,  label: 'Write a status update',    prompt: 'Help me write a concise weekly status update for my team.' },
-  { id: '6', icon: Bell,           label: 'Prioritize my day',        prompt: 'Based on my current workload, how should I prioritize my tasks today?' },
+  { id: '1', icon: Calendar,      label: 'Schedule a meeting',   prompt: 'Help me schedule a team meeting for next week. What should I consider?' },
+  { id: '2', icon: Mail,          label: 'Draft an email',        prompt: 'Draft a professional follow-up email for a business meeting.' },
+  { id: '3', icon: CheckSquare,   label: 'Create a task plan',    prompt: 'Help me break down a complex project into manageable tasks.' },
+  { id: '4', icon: Users,         label: 'Team 1:1 agenda',       prompt: 'Help me create an agenda for 1:1 meetings with my direct reports.' },
+  { id: '5', icon: MessageSquare, label: 'Write a status update', prompt: 'Help me write a concise weekly status update for my team.' },
+  { id: '6', icon: Bell,          label: 'Prioritize my day',     prompt: 'Based on my current workload, how should I prioritize my tasks today?' },
 ];
+
+// ── Copy-code button ──────────────────────────────────────────────────────────
+function CopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all"
+      style={{ background: 'rgba(255,255,255,0.08)', color: copied ? '#4ade80' : '#94a3b8' }}
+      title="Copy code"
+    >
+      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ node, className, children, ...props }: any) {
+          const match = /language-(\w+)/.exec(className || '');
+          const codeStr = String(children).replace(/\n$/, '');
+          const isBlock = match || codeStr.includes('\n');
+          if (isBlock) {
+            return (
+              <div className="relative my-3 rounded-xl overflow-hidden" style={{ background: '#0d1117' }}>
+                <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <span className="text-xs font-medium" style={{ color: '#64748b' }}>
+                    {match?.[1] || 'code'}
+                  </span>
+                  <CopyButton code={codeStr} />
+                </div>
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={match?.[1] || 'text'}
+                  PreTag="div"
+                  customStyle={{ margin: 0, padding: '1rem', background: 'transparent', fontSize: '0.82rem', lineHeight: '1.6' }}
+                  {...props}
+                >
+                  {codeStr}
+                </SyntaxHighlighter>
+              </div>
+            );
+          }
+          return (
+            <code
+              className="px-1.5 py-0.5 rounded text-xs font-mono"
+              style={{ background: 'rgba(99,102,241,0.15)', color: '#a78bfa' }}
+              {...props}
+            >
+              {children}
+            </code>
+          );
+        },
+        table({ children }) {
+          return (
+            <div className="overflow-x-auto my-3">
+              <table className="w-full text-sm border-collapse" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                {children}
+              </table>
+            </div>
+          );
+        },
+        th({ children }) {
+          return <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider" style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>{children}</th>;
+        },
+        td({ children }) {
+          return <td className="px-4 py-2 text-sm" style={{ color: '#cbd5e1', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>{children}</td>;
+        },
+        p({ children }) {
+          return <p className="mb-3 last:mb-0 leading-relaxed" style={{ color: '#cbd5e1' }}>{children}</p>;
+        },
+        ul({ children }) {
+          return <ul className="mb-3 space-y-1 pl-5 list-disc" style={{ color: '#cbd5e1' }}>{children}</ul>;
+        },
+        ol({ children }) {
+          return <ol className="mb-3 space-y-1 pl-5 list-decimal" style={{ color: '#cbd5e1' }}>{children}</ol>;
+        },
+        li({ children }) {
+          return <li className="leading-relaxed" style={{ color: '#cbd5e1' }}>{children}</li>;
+        },
+        strong({ children }) {
+          return <strong style={{ color: '#f1f5f9', fontWeight: 600 }}>{children}</strong>;
+        },
+        h1({ children }) { return <h1 className="text-xl font-bold mb-3 mt-2" style={{ color: '#f1f5f9' }}>{children}</h1>; },
+        h2({ children }) { return <h2 className="text-lg font-semibold mb-2 mt-4" style={{ color: '#f1f5f9' }}>{children}</h2>; },
+        h3({ children }) { return <h3 className="text-base font-semibold mb-2 mt-3" style={{ color: '#e2e8f0' }}>{children}</h3>; },
+        blockquote({ children }) {
+          return (
+            <blockquote className="border-l-2 pl-4 my-3 italic" style={{ borderColor: '#6366f1', color: '#94a3b8' }}>
+              {children}
+            </blockquote>
+          );
+        },
+        hr() {
+          return <hr className="my-4" style={{ borderColor: 'rgba(255,255,255,0.08)' }} />;
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+
+// ── Typing indicator ──────────────────────────────────────────────────────────
+function TypingIndicator() {
+  return (
+    <div className="flex items-center gap-1.5 px-1 py-2">
+      {[0, 1, 2].map(i => (
+        <motion.span
+          key={i}
+          className="w-2 h-2 rounded-full"
+          style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}
+          animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
+          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+        />
+      ))}
+      <span className="text-xs ml-1" style={{ color: '#64748b' }}>Ama is thinking…</span>
+    </div>
+  );
+}
+
+// ── Main ChatView ─────────────────────────────────────────────────────────────
 export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolean; onCloseSidebar?: () => void }) {
   const { tasks, events, team, addTask, addEvent, addTeamMember } = useApp();
   const { user } = useAuth();
-  const { profile, aiSettings, privacy, clearAllHistory } = useSettings();
+  const { profile, aiSettings, privacy } = useSettings();
 
-  const [sessions, setSessions] = useState<{id: string, title: string, messages: any[]}[]>(() => {
+  // ── Session state ────────────────────────────────────────────────────────
+  const [sessions, setSessions] = useState<{ id: string; title: string; messages: any[] }[]>(() => {
     if (privacy?.incognitoMode) return [];
-    const saved = localStorage.getItem('ama_chat_sessions');
-    if (saved) return JSON.parse(saved);
-    const old = localStorage.getItem('ama_chat_history');
-    if (old) {
-      const parsed = JSON.parse(old);
-      if (parsed.length > 0) {
-        return [{ id: Date.now().toString(), title: parsed.find((m: any) => m.role === 'user')?.content || 'Previous Chat', messages: parsed }];
+    try {
+      const saved = localStorage.getItem('ama_chat_sessions');
+      if (saved) return JSON.parse(saved);
+      const old = localStorage.getItem('ama_chat_history');
+      if (old) {
+        const parsed = JSON.parse(old);
+        if (parsed.length > 0) return [{ id: Date.now().toString(), title: parsed.find((m: any) => m.role === 'user')?.content || 'Previous Chat', messages: parsed }];
       }
-    }
+    } catch (_) {}
     return [];
   });
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
-    const saved = localStorage.getItem('ama_chat_sessions');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.length > 0 ? parsed[0].id : null;
-    }
-    const old = localStorage.getItem('ama_chat_history');
-    if (old && JSON.parse(old).length > 0) return Date.now().toString();
+    try {
+      const saved = localStorage.getItem('ama_chat_sessions');
+      if (saved) { const p = JSON.parse(saved); return p.length > 0 ? p[0].id : null; }
+    } catch (_) {}
     return null;
   });
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
-  const messages = activeSession ? activeSession.messages : [];
+  const messages: any[] = activeSession ? activeSession.messages : [];
 
+  // ── UI state ─────────────────────────────────────────────────────────────
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [userScrolled, setUserScrolled] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // ── Greeting ─────────────────────────────────────────────────────────────
+  const displayName = profile?.name || user?.name || '';
+  const firstName = displayName.split(' ')[0] || 'there';
+  const [greeting, setGreeting] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const h = new Date().getHours();
+      const sets: Record<string, string[]> = {
+        morning: [`Good morning, ${firstName}.`, `Morning, ${firstName}.`, `Ready to conquer the day?`],
+        afternoon: [`Good afternoon, ${firstName}.`, `Afternoon, ${firstName}.`, `Hope you're crushing it.`],
+        evening: [`Good evening, ${firstName}.`, `Evening, ${firstName}.`, `Let's wrap the day strong.`],
+      };
+      const key = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+      const arr = sets[key];
+      setGreeting(arr[Math.floor(Math.random() * arr.length)]);
+    };
+    update();
+    const t = setInterval(update, 60000);
+    return () => clearInterval(t);
+  }, [firstName]);
+
+  // ── Auto-resize textarea ─────────────────────────────────────────────────
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
+  }, [input]);
+
+  // ── Smart auto-scroll ────────────────────────────────────────────────────
+  const scrollToBottom = useCallback((force = false) => {
+    if (force || !userScrolled) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [userScrolled]);
+
+  useEffect(() => { scrollToBottom(); }, [messages, streamingContent]);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setUserScrolled(!atBottom);
+    setShowScrollBtn(!atBottom && (isLoading || !!streamingContent));
+  };
+
+  // ── Session helpers ──────────────────────────────────────────────────────
   const updateSessionMessages = (sessionId: string, newHistory: any[], sessionTitle: string) => {
     const storable = newHistory.map(m => ({
       ...m,
       files: m.files?.map((f: any) => ({ name: f.name || 'Attachment', type: f.type || '' }))
     }));
-    
     setSessions(prev => {
       if (privacy?.incognitoMode) return prev;
-      let exists = prev.some(s => s.id === sessionId);
-      let updated;
-      if (exists) {
-        updated = prev.map(s => s.id === sessionId ? { ...s, messages: storable } : s);
-      } else {
-        updated = [{ id: sessionId, title: sessionTitle, messages: storable }, ...prev];
-      }
+      const exists = prev.some(s => s.id === sessionId);
+      const updated = exists
+        ? prev.map(s => s.id === sessionId ? { ...s, messages: storable } : s)
+        : [{ id: sessionId, title: sessionTitle, messages: storable }, ...prev];
       localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
       window.dispatchEvent(new Event('ama_chat_sessions_updated'));
       return updated;
     });
   };
 
-  const displayName = profile?.name || user?.name || '';
-  const firstName = displayName.split(' ')[0] || 'there';
+  const deleteSession = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setSessions(prev => {
+      const updated = prev.filter(s => s.id !== id);
+      localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
+      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+      return updated;
+    });
+    if (activeSessionId === id) setActiveSessionId(null);
+  };
 
-  const [greeting, setGreeting] = useState('');
+  const clearAllSessions = () => {
+    if (!window.confirm('Delete all chat history?')) return;
+    setSessions([]);
+    setActiveSessionId(null);
+    localStorage.removeItem('ama_chat_sessions');
+    window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+  };
 
-  useEffect(() => {
-    const updateGreeting = () => {
-      const h = new Date().getHours();
-      let phrases: string[] = [];
-      if (h < 12) {
-        phrases = [`Good morning, ${firstName}.`, `Morning, ${firstName}.`, `Ready to start?`, `Greetings, ${firstName}.`];
-      } else if (h < 17) {
-        phrases = [`Good afternoon, ${firstName}.`, `Afternoon, ${firstName}.`, `Hope you're well.`, `Greetings, ${firstName}.`];
-      } else {
-        phrases = [`Good evening, ${firstName}.`, `Good night, ${firstName}.`, `Evening, ${firstName}.`, `Hello, ${firstName}.`];
-      }
-      setGreeting(phrases[Math.floor(Math.random() * phrases.length)]);
-    };
-    updateGreeting();
-    const interval = setInterval(updateGreeting, 60000);
-    return () => clearInterval(interval);
-  }, [firstName]);
-
-  // Build live system prompt from real data
+  // ── System prompt ────────────────────────────────────────────────────────
   const buildSystemPrompt = () => {
     const now = new Date().toLocaleString();
     const pendingTasks = tasks.filter(t => !t.completed);
@@ -107,23 +301,14 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     const todayISO = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     const todayEvents = events.filter(e => (e.date || todayISO) === todayISO);
 
-    const stylePrompt = aiSettings?.communicationStyle === 'Professional' 
-      ? 'You are professional, formal, and highly structured.' 
+    const stylePrompt = aiSettings?.communicationStyle === 'Professional'
+      ? 'You are professional, formal, and highly structured.'
       : aiSettings?.communicationStyle === 'Casual'
-      ? 'You are casual, friendly, and use a conversational tone with occasional emojis.'
-      : 'You are concise, direct, and use minimal words. Get straight to the point.';
-      
-    const proactivePrompt = aiSettings?.proactiveSuggestions
-      ? 'You should proactively suggest next steps, anticipate the user\'s needs, and offer helpful tips unprompted.'
-      : 'Wait for explicit instructions before suggesting new tasks or ideas.';
-      
-    const autoSchedulePrompt = aiSettings?.autoScheduleTasks
-      ? 'If the user mentions an action item, automatically propose a specific time or deadline for it in your response.'
-      : 'Do not schedule tasks or deadlines unless the user explicitly asks for them.';
+      ? 'You are casual, friendly, and conversational.'
+      : 'You are concise, direct, and use minimal words.';
 
-    return `You are Ama, an expert AI Chief of Staff. ${stylePrompt}
-${proactivePrompt}
-${autoSchedulePrompt}
+    return `You are Ama, a world-class AI Chief of Staff. ${stylePrompt}
+You are concise, highly accurate, and professional. Use structured Markdown, avoid fluff, and prioritize being helpful above all else.
 
 LIVE CONTEXT (${now}):
 - User: ${user?.name || 'Executive'} (${user?.email || ''})
@@ -173,37 +358,71 @@ If the user asks you to add or invite a team member, you MUST include this EXACT
 }
 \`\`\`
 
-In addition to your Chief of Staff duties, you MUST be able to answer ANY out-of-the-box or general knowledge questions the user asks. Provide fast, highly accurate, and direct answers to any non-work related questions to ensure a seamless conversational experience. Keep standard responses under 200 words unless asked for more details.
-
-CRITICAL - NUMERICAL ACCURACY: When providing numerical answers (weather temperatures, measurements, statistics, percentages, etc.), ALWAYS provide EXACT values, never ranges. Examples:
-- ✓ CORRECT: "The temperature in London is 8°C" or "Humidity is 65%"
-- ✗ WRONG: "The temperature in London is between 5-10°C" or "Around 60-70% humidity"
-Always be precise and specific with all factual numerical data.`;
+CRITICAL - NUMERICAL ACCURACY: Always provide EXACT values, never ranges.`;
   };
 
+  // ── Action parser ────────────────────────────────────────────────────────
+  const parseAndExecuteActions = (content: string) => {
+    const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi;
+    let match;
+    let hasAction = false;
+    while ((match = jsonBlockRegex.exec(content)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (parsed.action === 'CREATE_TASK' && parsed.task) {
+          const dueDate = parsed.task.dueDate || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+          addTask({ ...parsed.task, dueDate, status: 'todo', completed: false });
+          hasAction = true;
+        } else if (parsed.action === 'CREATE_EVENT' && parsed.event) {
+          const date = parsed.event.date || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+          addEvent({ ...parsed.event, date });
+          hasAction = true;
+        } else if (parsed.action === 'CREATE_TEAM_MEMBER' && parsed.member) {
+          addTeamMember({ ...parsed.member, status: 'online', workload: 'medium', taskCompletion: 0, currentKPI: 'Onboarding', tasksCompleted: 0, tasksTotal: 0, metrics: { productivity: 100, responseTime: '1h', projectsActive: 1 } });
+          hasAction = true;
+        }
+      } catch (_) {}
+    }
+    let clean = content.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/gi, '').trim();
+    if (!clean && hasAction) clean = '✅ Done!';
+    if (!clean && !hasAction) clean = 'I processed your request.';
+    return clean;
+  };
+
+  // ── Stop generation ──────────────────────────────────────────────────────
+  const stopGeneration = () => {
+    abortRef.current?.abort();
+  };
+
+  // ── Send message (SSE streaming) ─────────────────────────────────────────
   const sendMessage = async (userText: string, files?: File[]) => {
     if (!userText.trim() && (!files || files.length === 0)) return;
+    if (isLoading) return;
 
     const userMsg = { role: 'user', content: userText, files: files || [] };
     const history = [...messages, userMsg];
-    
+
     let currentId = activeSessionId;
     if (!currentId) {
       currentId = Date.now().toString();
       setActiveSessionId(currentId);
     }
-    
-    updateSessionMessages(currentId, history, userText || 'New Chat with files');
+
+    updateSessionMessages(currentId, history, userText || 'New Chat');
     setInput('');
     setSelectedFiles([]);
+    setUserScrolled(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     setIsLoading(true);
-    // const toastId = showToast('Ama is thinking…', 'loading');
+    setStreamingContent('');
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const token = localStorage.getItem('authToken');
-      const res = await fetch(`${API_BASE}/api/ama/chat`, {
+      const res = await fetch(`${API_BASE}/api/ama/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -212,389 +431,485 @@ Always be precise and specific with all factual numerical data.`;
         body: JSON.stringify({
           messages: history.map(m => ({ role: m.role, content: m.content })),
           systemPrompt: buildSystemPrompt(),
-          userContext: {
-            name: user?.name,
-            email: user?.email,
-            tasksCount: tasks.filter(t => !t.completed).length,
-            eventsCount: events.length,
-          },
+          userContext: { name: user?.name, email: user?.email },
         }),
+        signal: controller.signal,
       });
 
-      const data = await res.json();
-      if (res.ok && data.response) {
-        let content = data.response;
-        
-        // Parse JSON blocks for actions (more robust regex)
-        const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi;
-        let match;
-        let hasAction = false;
-        while ((match = jsonBlockRegex.exec(content)) !== null) {
+      if (!res.ok || !res.body) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || `Server error ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === '[DONE]') break;
           try {
-            const parsed = JSON.parse(match[1]);
-            if (parsed.action === 'CREATE_TASK' && parsed.task) {
-              const dueDate = parsed.task.dueDate || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-              addTask({ ...parsed.task, dueDate, status: 'todo', completed: false });
-              // showToast(`Task created: ${parsed.task.title}`, 'success');
-              hasAction = true;
-            } else if (parsed.action === 'CREATE_EVENT' && parsed.event) {
-              const date = parsed.event.date || new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-              addEvent({ ...parsed.event, date });
-              // showToast(`Event scheduled: ${parsed.event.title}`, 'success');
-              hasAction = true;
-            } else if (parsed.action === 'CREATE_TEAM_MEMBER' && parsed.member) {
-              addTeamMember({
-                ...parsed.member,
-                status: 'online',
-                workload: 'medium',
-                taskCompletion: 0,
-                currentKPI: 'Onboarding',
-                tasksCompleted: 0,
-                tasksTotal: 0,
-                metrics: { productivity: 100, responseTime: '1h', projectsActive: 1 }
-              });
-              // showToast(`Team member added: ${parsed.member.name}`, 'success');
-              hasAction = true;
+            const parsed = JSON.parse(payload);
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.delta) {
+              accumulated += parsed.delta;
+              setStreamingContent(accumulated);
             }
-          } catch (e) {
-            console.error('Failed to parse AI action JSON:', e);
+          } catch (parseErr: any) {
+            if (parseErr.message !== 'Unexpected end of JSON input') console.warn('SSE parse warn:', parseErr.message);
           }
         }
-        
-        // Remove the JSON block from the displayed message
-        content = content.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/gi, '').trim();
-        if (!content && hasAction) content = "Done!";
-        if (!content && !hasAction) content = "I processed your request.";
+      }
 
-        const newHistory = [...history, { role: 'assistant', content }];
-        updateSessionMessages(currentId as string, newHistory, userText || 'New Chat with files');
+      // Stream complete — parse actions and save
+      const finalContent = parseAndExecuteActions(accumulated || 'I processed your request.');
+      setStreamingContent('');
+      updateSessionMessages(currentId as string, [...history, { role: 'assistant', content: finalContent }], userText || 'New Chat');
+
+    } catch (err: any) {
+      setStreamingContent('');
+      if (err.name === 'AbortError') {
+        // User stopped — save partial content if any
+        const partial = (err as any).partial || '';
+        const saved = partial || '⏹️ Generation stopped.';
+        updateSessionMessages(currentId as string, [...history, { role: 'assistant', content: saved }], userText || 'New Chat');
       } else {
-        const errMsg = data.error || data.message || 'AI response failed.';
-        console.error('Chat backend error:', errMsg);
-        // showToast(`AI error: ${errMsg.slice(0, 80)}`, 'error');
         updateSessionMessages(currentId as string, [...history, {
           role: 'assistant',
-          content: `⚠️ ${errMsg}\n\nCheck that your GEMINI_API_KEY is valid in the backend .env file.`,
+          content: `⚠️ ${err.message || 'Could not reach the backend. Make sure it is running.'}`,
         }], userText || 'New Chat');
       }
-    } catch (err: any) {
-      const msg = err?.message || 'Network error';
-      const errorHistory = [...history, {
-        role: 'assistant',
-        content: '⚠️ Could not reach the backend. Make sure it is running.',
-      }];
-      updateSessionMessages(currentId as string, errorHistory, userText || 'New Chat');
-      // showToast(`Connection failed: ${msg}`, 'error');
     } finally {
       setIsLoading(false);
+      abortRef.current = null;
     }
   };
 
-  const deleteSession = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setSessions(prev => {
-      const updated = prev.filter(s => s.id !== id);
-      localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
-      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
-      return updated;
-    });
-    if (activeSessionId === id) {
-      setActiveSessionId(null);
-    }
-    // showToast('Chat history deleted', 'info');
+  // ── Regenerate last response ─────────────────────────────────────────────
+  const regenerate = () => {
+    if (!messages.length || isLoading) return;
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUserMsg) return;
+    // Strip last assistant message then resend
+    const withoutLastAssistant = messages.slice(0, -1);
+    if (activeSessionId) updateSessionMessages(activeSessionId, withoutLastAssistant, lastUserMsg.content);
+    setTimeout(() => sendMessage(lastUserMsg.content), 50);
   };
 
-  const clearAllSessions = () => {
-    if (!window.confirm('Are you sure you want to delete all chat history?')) return;
-    setSessions([]);
-    setActiveSessionId(null);
-    localStorage.removeItem('ama_chat_sessions');
-    window.dispatchEvent(new Event('ama_chat_sessions_updated'));
-    // showToast('All chat history cleared', 'info');
-  };
-
+  // ── External events ───────────────────────────────────────────────────────
+  useEffect(() => { if (sidebarOpen) setHistoryOpen(false); }, [sidebarOpen]);
   useEffect(() => {
-    if (sidebarOpen) {
-      setHistoryOpen(false);
-    }
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    const handleSelect = (e: any) => {
-      setActiveSessionId(e.detail);
-    };
-    window.addEventListener('select_chat_session', handleSelect);
-    return () => window.removeEventListener('select_chat_session', handleSelect);
+    const handle = (e: any) => setActiveSessionId(e.detail);
+    window.addEventListener('select_chat_session', handle);
+    return () => window.removeEventListener('select_chat_session', handle);
   }, []);
 
   const handleSend = () => sendMessage(input, selectedFiles);
-
-  const handleChipClick = (chip: typeof SUGGESTION_CHIPS[0]) => {
-    sendMessage(chip.prompt);
-  };
-
+  const handleChipClick = (chip: typeof SUGGESTION_CHIPS[0]) => sendMessage(chip.prompt);
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setSelectedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
-    }
+    if (e.target.files) setSelectedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
   };
 
+  const showMessages = messages.length > 0 || isLoading || !!streamingContent;
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full bg-white relative overflow-hidden">
+    <div
+      className="flex h-full relative overflow-hidden"
+      style={{ background: '#030014', fontFamily: "'Inter', system-ui, sans-serif" }}
+    >
+      {/* ── History Sidebar Backdrop (mobile) ─────────────────────────── */}
+      <AnimatePresence>
+        {historyOpen && (
+          <motion.div
+            className="fixed inset-0 z-30 md:hidden"
+            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setHistoryOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
-      {/* ── Mobile overlay backdrop ────────────────────────────────────── */}
-      {historyOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setHistoryOpen(false)}
-        />
-      )}
-
-      {/* ── History Sidebar (desktop: always visible | mobile: drawer) ── */}
-      <div className={`
-        flex-col bg-slate-50 border-r border-slate-200
-        md:flex md:relative md:translate-x-0 md:w-64
-        fixed inset-y-0 left-0 z-30 w-72
-        transition-transform duration-300 ease-in-out
-        ${historyOpen ? 'flex translate-x-0' : '-translate-x-full md:translate-x-0'}
-      `}>
-        <div className="p-3 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
-          <h3 className="font-semibold text-slate-800 flex items-center gap-2 text-sm">
-            <MessageSquare className="w-4 h-4" />
-            Chat History
-          </h3>
+      {/* ── History Sidebar ───────────────────────────────────────────── */}
+      <motion.div
+        className={`
+          flex flex-col flex-shrink-0
+          md:relative md:translate-x-0 md:w-60
+          fixed inset-y-0 left-0 z-40 w-64
+        `}
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+        }}
+        initial={false}
+        animate={{ x: historyOpen ? 0 : (typeof window !== 'undefined' && window.innerWidth < 768 ? -280 : 0) }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      >
+        {/* Sidebar header */}
+        <div className="p-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}>
+              <Sparkles className="w-3.5 h-3.5 text-white" />
+            </div>
+            <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Ama AI</span>
+          </div>
           <div className="flex items-center gap-1">
-            <button 
+            <button
               onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
-              className="text-xs px-2 py-1.5 bg-orange-500 text-white hover:bg-orange-600 rounded-md font-medium transition-colors shadow-sm"
-              title="Start a new chat"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}
+              title="New chat"
             >
-              + New
+              <Plus className="w-3 h-3" /> New
             </button>
-            {/* Close button — mobile only */}
             <button
               onClick={() => setHistoryOpen(false)}
-              className="md:hidden p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-500"
-              title="Close history panel"
+              className="md:hidden p-1.5 rounded-lg transition-all"
+              style={{ color: '#64748b' }}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {sessions.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-4">No recent history</p>
-          ) : (
-            <>
-              {sessions.map((session) => (
-                <div 
-                  key={session.id} 
-                  onClick={() => { setActiveSessionId(session.id); setHistoryOpen(false); }}
-                  className={`group flex items-center justify-between px-3 py-2.5 text-sm rounded-lg cursor-pointer transition-colors ${
-                    activeSessionId === session.id 
-                      ? 'bg-orange-100 text-orange-800' 
-                      : 'text-slate-600 hover:bg-slate-100 active:bg-slate-200'
-                  }`}
-                >
-                  <span className="truncate pr-2 text-xs md:text-sm">{session.title || 'Chat'}</span>
-                  <button
-                    onClick={(e) => deleteSession(e, session.id)}
-                    className="p-1.5 hover:bg-red-100 hover:text-red-600 rounded text-slate-400 transition-all opacity-60 md:opacity-0 md:group-hover:opacity-100"
-                    title="Delete chat"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+
+        {/* Session list */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          <AnimatePresence>
+            {sessions.length === 0 ? (
+              <p className="text-xs text-center py-8" style={{ color: '#334155' }}>No chat history yet</p>
+            ) : sessions.map(session => (
+              <motion.div
+                key={session.id}
+                initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
+                onClick={() => { setActiveSessionId(session.id); setHistoryOpen(false); }}
+                className="group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all text-sm"
+                style={{
+                  background: activeSessionId === session.id ? 'rgba(99,102,241,0.15)' : 'transparent',
+                  color: activeSessionId === session.id ? '#818cf8' : '#64748b',
+                }}
+                onMouseEnter={e => { if (activeSessionId !== session.id) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+                onMouseLeave={e => { if (activeSessionId !== session.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 opacity-60" />
+                  <span className="truncate text-xs">{session.title || 'Chat'}</span>
                 </div>
-              ))}
-              <div className="pt-3 pb-2 px-2 border-t border-slate-200 mt-4">
                 <button
-                  onClick={clearAllSessions}
-                  className="w-full py-2 px-2 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center gap-1.5 font-medium"
-                  title="Clear all chat history"
+                  onClick={e => deleteSession(e, session.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-lg transition-all flex-shrink-0"
+                  style={{ color: '#ef4444' }}
+                  title="Delete"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Clear All
+                  <Trash2 className="w-3 h-3" />
                 </button>
-              </div>
-            </>
-          )}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
-      </div>
 
-      {/* ── Main Chat Area ─────────────────────────────────────────────── */}
+        {/* Clear all */}
+        {sessions.length > 0 && (
+          <div className="p-3" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+            <button
+              onClick={clearAllSessions}
+              className="w-full py-2 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all"
+              style={{ color: '#475569' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.08)'; (e.currentTarget as HTMLElement).style.color = '#ef4444'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#475569'; }}
+            >
+              <Trash2 className="w-3 h-3" /> Clear all
+            </button>
+          </div>
+        )}
+      </motion.div>
+
+      {/* ── Main Chat Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full relative min-w-0">
-        {/* Mobile top bar — history toggle with hamburger menu */}
-        <div className="md:hidden flex items-center gap-2 px-2 py-2 border-b border-slate-100 bg-white flex-shrink-0 shadow-sm">
-          <button
-            onClick={() => setHistoryOpen(true)}
-            className="flex items-center justify-center gap-1 px-2.5 py-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
-            title="Show chat history"
-          >
+
+        {/* Mobile top bar */}
+        <div
+          className="md:hidden flex items-center gap-2 px-3 py-3 flex-shrink-0"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'rgba(3,0,20,0.8)', backdropFilter: 'blur(12px)' }}
+        >
+          <button onClick={() => setHistoryOpen(true)} className="p-2 rounded-xl transition-all" style={{ color: '#64748b' }}>
             <Menu className="w-5 h-5" />
-            <span className="text-xs font-semibold hidden sm:inline">History</span>
           </button>
-          <div className="flex-1" />
+          <div className="flex-1 flex justify-center">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}>
+                <Sparkles className="w-3 h-3 text-white" />
+              </div>
+              <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Ama</span>
+            </div>
+          </div>
           <button
-            onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
-            className="text-xs px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium transition-colors shadow-sm"
-            title="Start a new chat"
+            onClick={() => { setActiveSessionId(null); }}
+            className="p-2 rounded-xl transition-all"
+            style={{ color: '#6366f1' }}
           >
-            + New
+            <Plus className="w-5 h-5" />
           </button>
         </div>
-        {messages.length === 0 ? (
-        <>
-          {/* Welcome Screen */}
-          <div className="flex-1 flex flex-col items-center justify-center p-4">
-            <div className="w-full max-w-3xl mx-auto space-y-6">
-              
-              <div className="text-center mb-2">
-                <h2 className="text-xl md:text-2xl font-bold text-slate-800 flex items-center justify-center gap-3">
-                  <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-orange-500" />
-                  {greeting}
-                </h2>
-                <p className="text-slate-500 mt-2 text-sm md:text-base">How can I assist you right now?</p>
-              </div>
 
-              {/* Center Input */}
-              <div>
+        {/* ── Messages or Welcome ──────────────────────────────────────── */}
+        {!showMessages ? (
+          /* Welcome screen */
+          <div className="flex-1 flex flex-col items-center justify-center p-6">
+            <div className="w-full max-w-2xl mx-auto">
+              <motion.div
+                className="text-center mb-10"
+                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+              >
+                <div className="flex items-center justify-center mb-5">
+                  <div
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                    style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', boxShadow: '0 0 60px rgba(99,102,241,0.4)' }}
+                  >
+                    <Sparkles className="w-8 h-8 text-white" />
+                  </div>
+                </div>
+                <h1 className="text-3xl font-bold mb-2" style={{ color: '#f1f5f9' }}>{greeting}</h1>
+                <p className="text-base" style={{ color: '#475569' }}>How can I assist you today?</p>
+              </motion.div>
+
+              {/* Center input on welcome */}
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
                 <InputBar
-                  input={input}
-                  setInput={setInput}
+                  input={input} setInput={setInput} textareaRef={textareaRef}
                   selectedFiles={selectedFiles}
                   onRemoveFile={i => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
-                  fileInputRef={fileInputRef}
-                  onFileSelect={handleFileSelect}
-                  onSend={handleSend}
-                  isLoading={isLoading}
+                  fileInputRef={fileInputRef} onFileSelect={handleFileSelect}
+                  onSend={handleSend} isLoading={isLoading} onStop={stopGeneration}
                 />
-              </div>
+              </motion.div>
 
-              {/* Suggestion Chips Below Input */}
-              <div className="flex flex-wrap justify-center gap-2 md:gap-3 px-4">
-                {SUGGESTION_CHIPS.map(chip => {
+              {/* Suggestion chips */}
+              <motion.div
+                className="flex flex-wrap justify-center gap-2 mt-6"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+              >
+                {SUGGESTION_CHIPS.map((chip, i) => {
                   const Icon = chip.icon;
                   return (
-                    <button
+                    <motion.button
                       key={chip.id}
-                      id={`chip-${chip.id}`}
                       onClick={() => handleChipClick(chip)}
-                      className="flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-orange-300 rounded-full text-slate-600 hover:text-slate-900 text-xs md:text-sm transition-all shadow-sm"
+                      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.3 + i * 0.05 }}
+                      whileHover={{ scale: 1.04, y: -1 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-medium transition-all"
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: '#94a3b8',
+                      }}
                     >
-                      <Icon className="w-4 h-4 text-slate-400 group-hover:text-orange-500" />
+                      <Icon className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
                       {chip.label}
-                    </button>
+                    </motion.button>
                   );
                 })}
-              </div>
-
+              </motion.div>
             </div>
           </div>
-        </>
-      ) : (
-        <>
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="max-w-3xl mx-auto space-y-4 md:space-y-5">
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-2xl rounded-2xl px-5 py-3.5 text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-200/50'
-                        : 'bg-slate-50 border border-slate-200 text-slate-800'
-                    }`}
-                  >
-                    {msg.content && <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>}
-                    {msg.files && msg.files.length > 0 && (
-                      <div className="space-y-1 mt-2">
-                        {msg.files.map((f: any, fi: number) => (
-                          <div key={fi} className={`flex items-center gap-2 p-1.5 rounded ${msg.role === 'user' ? 'bg-white/20' : 'bg-white'}`}>
-                            {f.type?.startsWith('image/') ? <ImageIcon className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-                            <span className="text-xs truncate">{f.name || 'Attachment'}</span>
+        ) : (
+          /* Messages */
+          <>
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto"
+              style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.06) transparent' }}
+            >
+              <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+                <AnimatePresence initial={false}>
+                  {messages.map((msg, idx) => {
+                    const isLast = idx === messages.length - 1;
+                    const isLastAssistant = isLast && msg.role === 'assistant' && !isLoading;
+                    return (
+                      <motion.div
+                        key={idx}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.35, ease: 'easeOut' }}
+                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        {msg.role === 'assistant' && (
+                          <div className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mr-3 mt-0.5"
+                            style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)', boxShadow: '0 0 16px rgba(99,102,241,0.3)' }}>
+                            <Sparkles className="w-3.5 h-3.5 text-white" />
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {isLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3.5 text-slate-500 text-sm flex items-center gap-2">
-                    <span className="inline-flex gap-1">
-                      {[0, 150, 300].map(d => (
-                        <span key={d} className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
-                      ))}
-                    </span>
-                    Ama is thinking…
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+                        )}
+                        <div className="flex flex-col gap-1 max-w-[85%]">
+                          <div
+                            className={`rounded-2xl ${msg.role === 'user' ? 'px-4 py-3' : 'px-5 py-4'}`}
+                            style={msg.role === 'user' ? {
+                              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                              color: '#fff',
+                              boxShadow: '0 4px 24px rgba(99,102,241,0.3)',
+                            } : {
+                              background: 'rgba(255,255,255,0.04)',
+                              border: '1px solid rgba(255,255,255,0.07)',
+                              backdropFilter: 'blur(12px)',
+                            }}
+                          >
+                            {msg.role === 'user' ? (
+                              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#fff' }}>{msg.content}</p>
+                            ) : (
+                              <div className="text-sm">
+                                <MarkdownContent content={msg.content} />
+                              </div>
+                            )}
+                            {msg.files && msg.files.length > 0 && (
+                              <div className="space-y-1 mt-2">
+                                {msg.files.map((f: any, fi: number) => (
+                                  <div key={fi} className="flex items-center gap-2 p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                                    {f.type?.startsWith('image/') ? <ImageIcon className="w-4 h-4" style={{ color: '#a78bfa' }} /> : <FileText className="w-4 h-4" style={{ color: '#a78bfa' }} />}
+                                    <span className="text-xs truncate" style={{ color: '#94a3b8' }}>{f.name || 'Attachment'}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
 
-          {/* Input */}
-          <div className="p-4 md:p-6 bg-white border-t border-slate-100" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
-            <div className="max-w-3xl mx-auto">
-              <InputBar
-                input={input}
-                setInput={setInput}
-                selectedFiles={selectedFiles}
-                onRemoveFile={i => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
-                fileInputRef={fileInputRef}
-                onFileSelect={handleFileSelect}
-                onSend={handleSend}
-                isLoading={isLoading}
-              />
+                          {/* Regenerate button — under last assistant message */}
+                          {isLastAssistant && (
+                            <motion.button
+                              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+                              onClick={regenerate}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium self-start transition-all"
+                              style={{ color: '#475569', background: 'transparent' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#475569'; }}
+                            >
+                              <RefreshCw className="w-3 h-3" /> Regenerate
+                            </motion.button>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+
+                {/* Streaming message */}
+                {(isLoading || streamingContent) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-start"
+                  >
+                    <div className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mr-3 mt-0.5"
+                      style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)', boxShadow: '0 0 16px rgba(99,102,241,0.3)' }}>
+                      <Sparkles className="w-3.5 h-3.5 text-white" />
+                    </div>
+                    <div
+                      className="rounded-2xl px-5 py-4 max-w-[85%]"
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.07)',
+                        backdropFilter: 'blur(12px)',
+                      }}
+                    >
+                      {streamingContent ? (
+                        <div className="text-sm">
+                          <MarkdownContent content={streamingContent} />
+                          <motion.span
+                            className="inline-block w-0.5 h-4 ml-0.5 rounded-full align-middle"
+                            style={{ background: '#6366f1' }}
+                            animate={{ opacity: [1, 0] }}
+                            transition={{ duration: 0.7, repeat: Infinity }}
+                          />
+                        </div>
+                      ) : (
+                        <TypingIndicator />
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
             </div>
-          </div>
-        </>
+
+            {/* Scroll-to-bottom button */}
+            <AnimatePresence>
+              {showScrollBtn && (
+                <motion.button
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                  onClick={() => { setUserScrolled(false); scrollToBottom(true); }}
+                  className="absolute bottom-28 right-6 w-9 h-9 rounded-full flex items-center justify-center shadow-lg z-10"
+                  style={{ background: 'rgba(99,102,241,0.9)', color: '#fff', backdropFilter: 'blur(8px)' }}
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            {/* Input bar */}
+            <div
+              className="px-4 pb-4 pt-3 flex-shrink-0"
+              style={{ background: 'rgba(3,0,20,0.8)', backdropFilter: 'blur(16px)', borderTop: '1px solid rgba(255,255,255,0.04)', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+            >
+              <div className="max-w-3xl mx-auto">
+                <InputBar
+                  input={input} setInput={setInput} textareaRef={textareaRef}
+                  selectedFiles={selectedFiles}
+                  onRemoveFile={i => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
+                  fileInputRef={fileInputRef} onFileSelect={handleFileSelect}
+                  onSend={handleSend} isLoading={isLoading} onStop={stopGeneration}
+                />
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-// ── Shared InputBar ────────────────────────────────────────────────────────────
+// ── InputBar ──────────────────────────────────────────────────────────────────
 function InputBar({
-  input, setInput, selectedFiles, onRemoveFile,
-  fileInputRef, onFileSelect, onSend, isLoading,
+  input, setInput, textareaRef, selectedFiles, onRemoveFile,
+  fileInputRef, onFileSelect, onSend, isLoading, onStop,
 }: {
   input: string;
   setInput: (v: string) => void;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   selectedFiles: File[];
   onRemoveFile: (i: number) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSend: () => void;
   isLoading: boolean;
+  onStop: () => void;
 }) {
   const [isListening, setIsListening] = useState(false);
 
   const handleVoice = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Your browser does not support Voice Recognition.");
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert('Voice recognition not supported in this browser.'); return; }
+    const rec = new SR();
+    rec.continuous = false; rec.interimResults = false; rec.lang = 'en-US';
+    rec.onstart = () => setIsListening(true);
+    rec.onresult = (e: any) => { const t = e.results[0][0].transcript; setInput(input + (input ? ' ' : '') + t); };
+    rec.onerror = rec.onend = () => setIsListening(false);
+    rec.start();
+  };
 
-    recognition.onstart = () => setIsListening(true);
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(input + (input ? ' ' : '') + transcript);
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-
-    recognition.start();
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isLoading) onSend(); }
   };
 
   return (
@@ -602,52 +917,93 @@ function InputBar({
       {selectedFiles.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2">
           {selectedFiles.map((f, i) => (
-            <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-sm">
-              {f.type.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-orange-500" /> : <FileText className="w-4 h-4 text-orange-500" />}
-              <span className="text-slate-700 truncate max-w-[130px] text-xs">{f.name}</span>
-              <button onClick={() => onRemoveFile(i)} className="text-slate-400 hover:text-red-500">
-                <X className="w-3.5 h-3.5" />
-              </button>
+            <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
+              {f.type.startsWith('image/') ? <ImageIcon className="w-3.5 h-3.5" style={{ color: '#a78bfa' }} /> : <FileText className="w-3.5 h-3.5" style={{ color: '#a78bfa' }} />}
+              <span className="truncate max-w-[120px]">{f.name}</span>
+              <button onClick={() => onRemoveFile(i)} style={{ color: '#475569' }}><X className="w-3 h-3" /></button>
             </div>
           ))}
         </div>
       )}
-      <div className="flex gap-2 bg-white border border-slate-200 rounded-2xl p-2 shadow-lg shadow-slate-200/50">
+
+      <div
+        className="flex items-end gap-2 rounded-2xl px-3 py-2"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(16px)',
+          boxShadow: '0 0 0 1px rgba(99,102,241,0.08), 0 8px 32px rgba(0,0,0,0.4)',
+        }}
+      >
         <input type="file" ref={fileInputRef} onChange={onFileSelect} multiple className="hidden" />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="p-2.5 text-orange-500 hover:bg-orange-50 rounded-xl transition-all"
+          className="p-2 rounded-xl flex-shrink-0 transition-all mb-0.5"
+          style={{ color: '#475569' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#818cf8'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#475569'}
+          title="Attach file"
         >
           <Paperclip className="w-5 h-5" />
         </button>
-        <input
+
+        <textarea
           id="chat-input"
-          type="text"
+          ref={textareaRef}
+          rows={1}
           value={input}
           onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && onSend()}
-          placeholder="Ask Ama anything…"
-          disabled={isLoading}
-          className="flex-1 px-2 py-2.5 bg-transparent focus:outline-none text-sm text-slate-900 placeholder:text-slate-400 disabled:opacity-50"
+          onKeyDown={handleKeyDown}
+          placeholder="Ask Ama anything… (Shift+Enter for newline)"
+          disabled={isLoading && !input}
+          className="flex-1 py-2 bg-transparent focus:outline-none text-sm resize-none overflow-hidden"
+          style={{
+            color: '#f1f5f9',
+            minHeight: '36px',
+            maxHeight: '140px',
+            lineHeight: '1.5',
+            caretColor: '#6366f1',
+          }}
         />
+
         <button
           onClick={handleVoice}
-          className={`p-2.5 rounded-xl transition-all ${
-            isListening ? 'bg-red-100 text-red-500 animate-pulse' : 'text-slate-400 hover:text-orange-500 hover:bg-orange-50'
-          }`}
-          title="Voice Command"
+          className={`p-2 rounded-xl flex-shrink-0 mb-0.5 transition-all ${isListening ? 'animate-pulse' : ''}`}
+          style={{ color: isListening ? '#ef4444' : '#475569' }}
+          onMouseEnter={e => { if (!isListening) (e.currentTarget as HTMLElement).style.color = '#818cf8'; }}
+          onMouseLeave={e => { if (!isListening) (e.currentTarget as HTMLElement).style.color = '#475569'; }}
+          title="Voice input"
         >
           <Mic className="w-5 h-5" />
         </button>
-        <button
-          id="chat-send-btn"
-          onClick={onSend}
-          disabled={(!input.trim() && selectedFiles.length === 0) || isLoading}
-          className="p-2.5 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Send className="w-5 h-5" />
-        </button>
+
+        {isLoading ? (
+          <motion.button
+            onClick={onStop}
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            className="flex-shrink-0 mb-0.5 w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+            style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+            title="Stop generation"
+          >
+            <Square className="w-4 h-4 fill-current" />
+          </motion.button>
+        ) : (
+          <motion.button
+            id="chat-send-btn"
+            onClick={onSend}
+            disabled={!input.trim() && selectedFiles.length === 0}
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            className="flex-shrink-0 mb-0.5 w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)', boxShadow: '0 4px 16px rgba(99,102,241,0.4)', color: '#fff' }}
+            title="Send"
+          >
+            <Send className="w-4 h-4" />
+          </motion.button>
+        )}
       </div>
+      <p className="text-center text-xs mt-2" style={{ color: '#1e293b' }}>
+        Ama can make mistakes. Verify important information.
+      </p>
     </>
   );
 }

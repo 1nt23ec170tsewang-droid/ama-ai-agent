@@ -1248,6 +1248,133 @@ You are proactive, concise, and strategic.`;
   }
 });
 
+// ──────────────────────────────────────────
+// AMA CHAT — SSE STREAMING  (/api/ama/chat/stream)
+// ──────────────────────────────────────────
+app.post('/api/ama/chat/stream', optionalAuth, async (req, res) => {
+  const { messages, userContext, systemPrompt: clientSystemPrompt } = req.body;
+  const user = req.user;
+
+  if (!messages || !messages.length) {
+    return res.status(400).json({ message: 'Messages are required.' });
+  }
+
+  // SSE headers — keep connection alive for streaming
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable Nginx buffering on Render
+  res.flushHeaders();
+
+  const sendChunk = (text) => {
+    res.write(`data: ${JSON.stringify({ delta: text })}\n\n`);
+  };
+  const sendDone = () => {
+    res.write(`data: [DONE]\n\n`);
+    res.end();
+  };
+  const sendError = (msg) => {
+    res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+    res.end();
+  };
+
+  // Build system context (client-provided or default)
+  const ctx = {
+    name: userContext?.name || user?.name || 'User',
+    company: userContext?.company || user?.company || '',
+  };
+  let systemContext = clientSystemPrompt ||
+    `You are Ama, a world-class AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, and professional. Use structured Markdown, avoid fluff, and prioritize being helpful above all else.`;
+
+  systemContext += `\n\nIMPORTANT SCHEDULING RULES:\n- When a user asks to schedule a meeting or create a task, immediately output the EXACT JSON block without asking clarifying questions.\n- Use reasonable defaults if information is missing.`;
+
+  let fullReply = '';
+
+  try {
+    if (OPENROUTER_API_KEY) {
+      // ── OpenRouter streaming ─────────────────────────────
+      const openAIMessages = messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content,
+      }));
+
+      const orRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:5173',
+          'X-Title': 'Ama AI Chief of Staff',
+        },
+        body: JSON.stringify({
+          model: OPENROUTER_MODEL,
+          stream: true,
+          messages: [
+            { role: 'system', content: systemContext },
+            ...openAIMessages,
+          ],
+          max_tokens: 2048,
+        }),
+      });
+
+      if (!orRes.ok) {
+        const errText = await orRes.text();
+        throw new Error(`OpenRouter stream error ${orRes.status}: ${errText}`);
+      }
+
+      // Parse the SSE stream from OpenRouter and pipe chunks to client
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for await (const rawChunk of orRes.body) {
+        buffer += decoder.decode(rawChunk, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line in buffer
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data:')) continue;
+          const jsonStr = trimmed.slice(5).trim();
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullReply += delta;
+              sendChunk(delta);
+            }
+          } catch (_) {
+            // skip malformed chunk
+          }
+        }
+      }
+    } else {
+      // ── Gemini fallback (non-streaming, emit single chunk) ──
+      const conversationHistory = messages
+        .map(m => `${m.role === 'user' ? 'User' : 'Ama'}: ${m.content}`)
+        .join('\n');
+      const fullPrompt = `${systemContext}\n\nConversation:\n${conversationHistory}\n\nAma:`;
+      fullReply = await askGemini(fullPrompt);
+      sendChunk(fullReply);
+    }
+
+    sendDone();
+
+    // Save assembled reply to Firestore (non-blocking)
+    if (db && fullReply) {
+      const sessionId = req.body.sessionId || Date.now().toString();
+      db.collection('conversations').add({
+        userId: user?.id || 'anonymous',
+        sessionId,
+        userMessage: messages[messages.length - 1]?.content,
+        amaResponse: fullReply,
+        timestamp: new Date().toISOString(),
+      }).catch(err => console.error('Firestore save error:', err));
+    }
+  } catch (err) {
+    console.error('SSE stream error:', err.message);
+    sendError('Failed to stream AI response. Please try again.');
+  }
+});
+
 // Summarize Email
 app.post('/api/ama/summarize-email', authenticateToken, async (req, res) => {
   try {
