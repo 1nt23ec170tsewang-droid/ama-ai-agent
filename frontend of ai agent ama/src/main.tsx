@@ -1,6 +1,9 @@
+declare module '*.css';
+
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import "./styles/index.css";
 import App from "./app/App";
 import Login from "./app/components/Login";
 import Register from "./app/components/Register";
@@ -76,7 +79,7 @@ root.render(
             <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<RootRedirect />} />
           </Routes>
-        </BrowserRouter>import "./styles/index.css";
+        </BrowserRouter>
       </AuthProvider>
     </ToastProvider>
     {/* --------------------------------------- */}
