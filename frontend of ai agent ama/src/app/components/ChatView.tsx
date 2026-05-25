@@ -573,7 +573,7 @@ Always provide exact values. Never use placeholder ranges.`;
       {/* ── Main Chat Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full relative min-w-0">
 
-        {/* ── Sleek Top Header with New Chat & Shortcuts ────────────────── */}
+        {/* ── Sleek Top Header with New Chat ────────────────── */}
         <div
           className="flex items-center justify-between px-4 py-3 flex-shrink-0"
           style={{
@@ -587,28 +587,6 @@ Always provide exact values. Never use placeholder ranges.`;
               <Sparkles className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Ama AI Assistant</span>
-          </div>
-
-          {/* Quick Shortcuts */}
-          <div className="hidden sm:flex items-center gap-2">
-            <button
-              onClick={() => sendMessage('I need to schedule a meeting.')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#cbd5e1' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.1)'; (e.currentTarget as HTMLElement).style.color = '#818cf8'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; (e.currentTarget as HTMLElement).style.color = '#cbd5e1'; }}
-            >
-              <Calendar className="w-3.5 h-3.5" /> Schedule Meeting
-            </button>
-            <button
-              onClick={() => sendMessage('I need to draft an email.')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#cbd5e1' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.1)'; (e.currentTarget as HTMLElement).style.color = '#818cf8'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; (e.currentTarget as HTMLElement).style.color = '#cbd5e1'; }}
-            >
-              <Mail className="w-3.5 h-3.5" /> Draft Email
-            </button>
           </div>
 
           <button
