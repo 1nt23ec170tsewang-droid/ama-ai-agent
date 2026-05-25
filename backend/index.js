@@ -146,6 +146,7 @@ async function askAI(prompt, systemPrompt) {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 const SECRET_KEY = process.env.JWT_SECRET;
 const REFRESH_SECRET_KEY = process.env.JWT_REFRESH_SECRET || (SECRET_KEY + '_refresh_rotation_key');
@@ -194,7 +195,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
   optionsSuccessStatus: 200
 }));
 
@@ -469,7 +470,7 @@ app.post('/api/auth/register', async (req, res, next) => {
     
     // Generate 6-digit email verification code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+    const emailVerificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
 
     const userData = { 
       id: Date.now().toString(), 
@@ -726,7 +727,7 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
 
     // Generate new code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const emailVerificationCodeExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
     const updates = {
       emailVerificationCode: verificationCode,
