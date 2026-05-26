@@ -64,6 +64,13 @@ export function EmailManager() {
       // showToast(`Gmail error: ${decodeURIComponent(gError)}`, 'error');
       window.history.replaceState({}, '', window.location.pathname);
     }
+
+    // Also check if a gmail email was pre-stored in localStorage by the ProtectedRoute
+    // (happens when user wasn't logged in during OAuth callback)
+    const storedEmail = localStorage.getItem('ama_gmail_email');
+    if (storedEmail && !gEmail) {
+      setGmailEmail(storedEmail);
+    }
   }, []);
 
   // ── Fetch inbox ──────────────────────────────────────────────────────────

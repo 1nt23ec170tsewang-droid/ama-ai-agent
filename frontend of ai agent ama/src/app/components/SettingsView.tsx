@@ -142,11 +142,11 @@ export function SettingsView() {
       icon: '💬',
       bg: 'bg-green-100',
       connected: slackConnected,
-      subtitle: slackConnected ? 'Connected to workspace' : 'Not connected',
+      subtitle: slackConnected ? 'Connected via Google' : 'Not connected',
       onConnect: () => {
-        localStorage.setItem('ama_slack_connected', 'true');
-        setSlackConnected(true);
-        // showToast('Slack connected!', 'success');
+        // Trigger Gmail OAuth which covers Google Workspace / Slack SSO scopes
+        // This redirects to Google consent and comes back to /dashboard?gmail_connected=...
+        handleConnectGmail();
       },
       onDisconnect: () => {
         localStorage.removeItem('ama_slack_connected');

@@ -65,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        // Cache user for PWA offline recovery
+        try { localStorage.setItem('ama_user_cache', JSON.stringify(data.user)); } catch {}
         return true;
       }
       return false;
@@ -74,6 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const silentRefreshFallback = async () => {
+    // First try to restore from saved token (works offline for PWA)
+    const savedToken = localStorage.getItem('authToken');
+    
     try {
       const res = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: 'POST',
@@ -87,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return data.accessToken;
       }
       
-      const savedToken = localStorage.getItem('authToken');
+      // Refresh failed - try the saved token
       if (savedToken) {
         const ok = await fetchProfileFallback(savedToken);
         if (ok) {
@@ -96,16 +101,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
       
+      // No valid token - clear state
       setToken(null);
       setUser(null);
       return null;
-    } catch {
-      const savedToken = localStorage.getItem('authToken');
+    } catch (networkError) {
+      // Network error (offline / server unreachable) - preserve existing auth state
+      // This is critical for PWA users to stay logged in when the backend is down
       if (savedToken) {
-        const ok = await fetchProfileFallback(savedToken);
+        const ok = await fetchProfileFallback(savedToken).catch(() => false);
         if (ok) {
           setToken(savedToken);
           return savedToken;
+        }
+        // Even if profile fetch fails, keep token in localStorage
+        // The user can still use cached features of the PWA
+        // We'll attempt profile via a minimal decode
+        const storedUser = localStorage.getItem('ama_user_cache');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            setUser(parsed);
+            setToken(savedToken);
+            return savedToken;
+          } catch {}
         }
       }
       setToken(null);
@@ -147,13 +166,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.warn('Firestore profile fetch failed (using auth profile):', fsErr);
             }
 
-            setUser({
+            const userData = {
               id: firebaseUser.uid,
               email: firebaseUser.email || '',
               name,
               company,
               role
-            });
+            };
+            setUser(userData);
+            // Cache for PWA offline recovery
+            try { localStorage.setItem('ama_user_cache', JSON.stringify(userData)); } catch {}
           } catch (tokenErr) {
             console.error('Firebase Auth session refresh failed:', tokenErr);
             showToast('Your session has expired. Please log in again.', 'error');
@@ -278,6 +300,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    // Clear PWA user cache on logout
+    try { localStorage.removeItem('ama_user_cache'); } catch {}
     if (auth) {
       try {
         await signOut(auth);

@@ -122,8 +122,8 @@ export default function App() {
             </div>
           </main>
           
-          {/* Global AI Quick Action Widget */}
-          {activeView !== 'chat' && activeView !== 'briefing' && <QuickAskWidget />}
+          {/* Global AI Quick Action Widget — hidden on settings, email, briefing, and chat pages */}
+          {activeView !== 'chat' && activeView !== 'briefing' && activeView !== 'settings' && <QuickAskWidget />}
         </div>
       </AppProvider>
     </SettingsProvider>

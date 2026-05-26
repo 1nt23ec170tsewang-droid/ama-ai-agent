@@ -8,6 +8,7 @@ import App from "./app/App";
 import Login from "./app/components/Login";
 import Register from "./app/components/Register";
 import ResetPassword from "./app/components/ResetPassword";
+import LandingPage from "./app/components/LandingPage";
 import { AuthProvider, useAuth } from "./app/context/AuthContext";
 import { ToastProvider } from "./app/context/ToastContext";
 
@@ -37,7 +38,8 @@ function RootRedirect() {
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
-  return <Navigate to="/login" replace />;
+  // Show landing page for unauthenticated users visiting root
+  return <LandingPage />;
 }
 
 interface ProtectedRouteProps {
@@ -48,6 +50,10 @@ interface ProtectedRouteProps {
 function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const location = useLocation();
+
+  // Check if this is a Gmail OAuth callback (backend redirected back with ?gmail_connected=...)
+  // In this case, keep showing loading spinner while Firebase Auth restores from local persistence
+  const hasGmailCallback = location.search.includes('gmail_connected') || location.search.includes('gmail_error');
 
   if (loading) {
     return (
@@ -61,7 +67,17 @@ function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
     );
   }
 
+  // If this is a Gmail OAuth callback and user is still not available (rare edge case),
+  // redirect to login preserving the gmail_connected param so Email tab auto-connects
   if (!user) {
+    if (hasGmailCallback) {
+      // Store the gmail_connected email in localStorage so EmailManager picks it up after login
+      const params = new URLSearchParams(location.search);
+      const gEmail = params.get('gmail_connected');
+      if (gEmail) {
+        localStorage.setItem('ama_gmail_email', decodeURIComponent(gEmail));
+      }
+    }
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -85,6 +101,7 @@ root.render(
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/dashboard" element={<ProtectedRoute><App /></ProtectedRoute>} />
             <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="*" element={<RootRedirect />} />
           </Routes>
         </BrowserRouter>
