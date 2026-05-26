@@ -45,6 +45,9 @@ export function EmailManager() {
 
   // ── Check for ?gmail_connected= in URL after OAuth redirect ──────────────
   useEffect(() => {
+    // Pre-warm backend cold start on mount
+    fetch(`${API}/health`).catch(() => {});
+
     const params = new URLSearchParams(window.location.search);
     const gEmail = params.get('gmail_connected');
     const gError = params.get('gmail_error');
@@ -100,27 +103,9 @@ export function EmailManager() {
   }, [gmailEmail, token, fetchEmails]);
 
   // ── Start Gmail OAuth ────────────────────────────────────────────────────
-  const handleConnectGmail = async () => {
-    try {
-      console.log('Initiating Gmail auth. Token:', token);
-      const res = await fetch(`${API}/api/gmail/auth`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      });
-      console.log('Gmail auth status:', res.status);
-      const data = await res.json();
-      console.log('Gmail auth data:', data);
-      
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-      } else {
-        alert(`Gmail connection failed: ${data.message || data.error || 'Server did not return a valid Google authorization URL.'} (Status: ${res.status})`);
-      }
-    } catch (err: any) {
-      console.error('Gmail OAuth error:', err);
-      alert(`Could not connect to Gmail: ${err.message || 'The server could not be reached. Please check if the backend is running.'}`);
-    }
+  const handleConnectGmail = () => {
+    console.log('Initiating Gmail OAuth via direct backend redirect.');
+    window.location.href = `${API}/auth/gmail`;
   };
 
   const handleDisconnect = () => {

@@ -237,7 +237,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       )}
 
       {/* User footer */}
-      <div className="p-4 border-t border-slate-700 shrink-0">
+      <div className="p-4 border-t border-slate-700 shrink-0 hidden md:block">
         <button
           id="nav-settings"
           onClick={() => onViewChange('settings')}

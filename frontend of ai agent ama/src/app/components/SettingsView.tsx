@@ -93,27 +93,14 @@ export function SettingsView() {
   const [calendarConnected, setCalendarConnected] = useState<boolean>(() => localStorage.getItem('ama_calendar_connected') === 'true');
   const [slackConnected, setSlackConnected] = useState<boolean>(() => localStorage.getItem('ama_slack_connected') === 'true');
 
-  const handleConnectGmail = async () => {
-    try {
-      console.log('Initiating Gmail auth in Settings. Token:', token);
-      const res = await fetch(`${API_BASE}/api/gmail/auth`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      });
-      console.log('Gmail auth status in Settings:', res.status);
-      const data = await res.json();
-      console.log('Gmail auth data in Settings:', data);
-      
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-      } else {
-        alert(`Gmail connection failed: ${data.message || data.error || 'Server did not return a valid Google authorization URL.'} (Status: ${res.status})`);
-      }
-    } catch (err: any) {
-      console.error('Gmail OAuth error in Settings:', err);
-      alert(`Could not connect to Gmail: ${err.message || 'The server could not be reached. Please check if the backend is running.'}`);
-    }
+  useEffect(() => {
+    // Pre-warm backend cold start on mount
+    fetch(`${API_BASE}/health`).catch(() => {});
+  }, []);
+
+  const handleConnectGmail = () => {
+    console.log('Initiating Gmail OAuth in Settings via direct backend redirect.');
+    window.location.href = `${API_BASE}/auth/gmail`;
   };
 
   const handleDisconnectGmail = () => {

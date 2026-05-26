@@ -123,7 +123,7 @@ export default function App() {
           </main>
           
           {/* Global AI Quick Action Widget */}
-          {activeView !== 'chat' && <QuickAskWidget />}
+          {activeView !== 'chat' && activeView !== 'briefing' && <QuickAskWidget />}
         </div>
       </AppProvider>
     </SettingsProvider>

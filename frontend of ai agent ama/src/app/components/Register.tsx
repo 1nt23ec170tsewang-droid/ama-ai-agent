@@ -38,6 +38,11 @@ export default function Register() {
   const isPasswordValid = hasMinLength && hasUppercase && hasNumber && hasSpecialChar;
   const isSubmitDisabled = !isPasswordValid || !passwordsMatch || loading || !name || !email;
 
+  useEffect(() => {
+    // Pre-warm backend cold start on mount
+    fetch(`${API_BASE}/health`).catch(() => {});
+  }, []);
+
   // Handle resend code cooldown countdown
   useEffect(() => {
     if (resendCooldown > 0) {
@@ -46,27 +51,8 @@ export default function Register() {
     }
   }, [resendCooldown]);
 
-  const handleConnectGmail = async () => {
-    setConnectingGmail(true);
-    setError('');
-    try {
-      const token = localStorage.getItem('authToken');
-      const res = await fetch(`${API_BASE}/api/gmail/auth`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setError('Could not get Google sign-in URL. Please try again.');
-        setConnectingGmail(false);
-      }
-    } catch {
-      setError('Could not reach backend. Is it running?');
-      setConnectingGmail(false);
-    }
+  const handleConnectGmail = () => {
+    window.location.href = `${API_BASE}/auth/gmail`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

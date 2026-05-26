@@ -1807,7 +1807,7 @@ app.get('/api/dashboard/tasks', authenticateToken, async (req, res) => {
 
 const GMAIL_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
 const GMAIL_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GMAIL_REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT || 5000}/api/gmail/callback`;
+const GMAIL_REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || `http://localhost:${process.env.PORT || 5000}/auth/gmail/callback`;
 const GMAIL_FRONTEND_URL  = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // In-memory token store (keyed by gmail address)
@@ -1844,10 +1844,55 @@ function makeOAuth2(tokens) {
   return c;
 }
 
-// GET /api/gmail/auth  — returns the Google OAuth consent URL
-app.get('/api/gmail/auth', authenticateToken, (req, res, next) => {
+// GET /auth/gmail  — public endpoint to initiate Google OAuth consent flow directly
+app.get('/auth/gmail', (req, res, next) => {
   try {
-    const login_hint = req.user.email;
+    const state = Math.random().toString(36).slice(2);
+    const url = makeOAuth2().generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      state,
+      scope: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.modify',
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/calendar.readonly'
+      ],
+    });
+    res.redirect(url);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /auth/gmail/callback  — public endpoint where Google redirects after consent approval
+app.get('/auth/gmail/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing code');
+  try {
+    const oauth2 = makeOAuth2();
+    const { tokens } = await oauth2.getToken(String(code));
+    oauth2.setCredentials(tokens);
+    const { data } = await google.oauth2({ version: 'v2', auth: oauth2 }).userinfo.get();
+    gmailTokenStore.set(data.email, { tokens, email: data.email });
+    console.log('✅ Gmail connected for:', data.email);
+    if (db) {
+      db.collection('gmail_tokens').doc(data.email).set({ email: data.email, tokens, updatedAt: new Date().toISOString() })
+        .catch(err => console.error('Failed to persist Gmail token:', err.message));
+    }
+    res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_connected=${encodeURIComponent(data.email)}`);
+  } catch (err) {
+    console.error('Gmail callback error:', err.message);
+    res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_error=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// GET /api/gmail/auth  — returns the Google OAuth consent URL (optional auth fallback)
+app.get('/api/gmail/auth', optionalAuth, (req, res, next) => {
+  try {
+    const login_hint = req.user?.email;
     const state = Math.random().toString(36).slice(2);
     const url = makeOAuth2().generateAuthUrl({
       access_type: 'offline',
@@ -1869,7 +1914,7 @@ app.get('/api/gmail/auth', authenticateToken, (req, res, next) => {
   }
 });
 
-// GET /api/gmail/callback  — Google redirects here after user approves
+// GET /api/gmail/callback  — Google redirects here after user approves (legacy api fallback support)
 app.get('/api/gmail/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).send('Missing code');
