@@ -55,6 +55,17 @@ function RootRedirect() {
   return <Navigate to="/landing" replace />;
 }
 
+// Redirects desktop users (≥768px) away from login/register to the landing page.
+// Mobile users can access login/register directly.
+function DesktopGuard({ children }: { children: React.ReactNode }) {
+  const isDesktop = window.innerWidth >= 768;
+  if (isDesktop) {
+    return <Navigate to="/landing" replace />;
+  }
+  return <>{children}</>;
+}
+
+
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: string[];
@@ -96,8 +107,9 @@ root.render(
         <BrowserRouter>
           <Routes>
             <Route path="/landing" element={<LandingPage />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<DesktopGuard><Login /></DesktopGuard>} />
+            <Route path="/register" element={<DesktopGuard><Register /></DesktopGuard>} />
+
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/dashboard" element={<ProtectedRoute><App /></ProtectedRoute>} />
             <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
