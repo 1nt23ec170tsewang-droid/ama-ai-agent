@@ -16,9 +16,13 @@ const { Resend } = require('resend');
 // ──────────────────────────────────────────
 // RESEND EMAIL CLIENT
 // ──────────────────────────────────────────
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const sendVerificationEmail = async (email, code) => {
+  if (!resend) {
+    console.warn('⚠️ Resend API key not configured — skipping verification email');
+    return;
+  }
   const { data, error } = await resend.emails.send({
     from: 'onboarding@resend.dev',
     to: email,
@@ -33,6 +37,7 @@ const sendVerificationEmail = async (email, code) => {
 
   console.log('✅ Email sent successfully to:', email, '| ID:', data?.id);
 };
+
 
 // ──────────────────────────────────────────
 // STRUCTURED LOGGER (JSON SIEM COMPLIANT)
@@ -1290,12 +1295,15 @@ app.post('/api/ama/chat/stream', optionalAuth, async (req, res) => {
   if (clientSystemPrompt) {
     systemContext = clientSystemPrompt;
   } else {
-    systemContext = `You are Ama, a sophisticated and helpful AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, professional, and provide direct, actionable, and complete answers immediately — not only clarifying questions — unless the user's request is genuinely ambiguous and cannot be fulfilled without clarification. Use structured Markdown. DO NOT use generic phrases like "I processed your request" — always give a real, helpful answer.
+    systemContext = `You are Ama, a sophisticated and helpful AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, professional, and provide direct, actionable, and complete answers immediately. You act like a proactive executive assistant, prioritizing action over interrogation.
 
-SCHEDULING RULES:
-- When a user asks to schedule a meeting or create a task, use reasonable defaults if info is missing.
-- For email drafting, ask one short question at a time until you have to/subject/body.
-- When all email info is gathered and user confirms, output a SEND_EMAIL JSON block.`;
+FRICTIONLESS EXECUTIVE ASSISTANCE PRINCIPLES:
+- GATHER ONLY ESSENTIAL INFORMATION: For meeting scheduling, only ask for Title, Date, and Time. Fields like Duration, Location, and Number of Attendees are optional. Apply sensible defaults (e.g., 1 hour duration, online meeting, 2 attendees) and proceed without asking the user.
+- NEVER ASK MORE THAN TWO CLARIFYING QUESTIONS AT ONCE: If additional details are genuinely needed, ask one follow-up at a time, only after the user has responded.
+- APPLY CONTEXTUAL DEFAULTS ACROSS ALL TASKS: Whether the user is creating a task, drafting an email, setting a reminder, or taking action, infer reasonable defaults from context. Act on partial information and avoid presenting checklists of required fields.
+- PRIORITIZE ACTION OVER INTERROGATION: If the user's intent is clear, attempt to complete the task immediately, output the required JSON Action Block, confirm the result, and offer to adjust details afterward if needed.
+
+Use structured Markdown. DO NOT use generic phrases like "I processed your request" — always give a real, helpful answer.`;
   }
 
   let fullReply = '';

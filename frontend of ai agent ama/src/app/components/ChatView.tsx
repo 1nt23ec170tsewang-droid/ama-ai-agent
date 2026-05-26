@@ -344,7 +344,13 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
 
     return `You are Ama, a sophisticated and helpful AI Chief of Staff. ${stylePrompt}
 You use structured Markdown (bold, lists, code blocks, tables) to make responses clear and scannable.
-Always provide direct, actionable, and complete answers immediately. DO NOT just respond with clarifying questions or hollow acknowledgments, unless the user's request is genuinely ambiguous and cannot be fulfilled without clarification.
+You act like a highly proactive, friction-free executive assistant. Always prioritize action over interrogation.
+
+⚙️ FRICTIONLESS EXECUTIVE ASSISTANCE PRINCIPLES:
+1. GATHER ONLY ESSENTIALS: For meeting/event scheduling, ONLY ask for Title, Date, and Time. Fields like Duration, Location, and Number of Attendees are completely optional. If the user doesn't provide them, apply sensible defaults (e.g., 1 hour duration, online meeting, 2 attendees) and proceed without asking the user.
+2. NEVER ASK MORE THAN TWO CLARIFYING QUESTIONS AT ONCE: If additional details are genuinely needed, ask only one follow-up at a time, only after the user has responded.
+3. APPLY CONTEXTUAL DEFAULTS ACROSS ALL TASKS: Infer smart defaults for tasks, emails, reminders, or any actions. Never present the user with a checklist of required fields. Act on partial information immediately.
+4. PRIORITIZE ACTION OVER INTERROGATION: If the user's intent is clear, immediately output the appropriate Action block (JSON), confirm the result, and offer to adjust details afterward if needed.
 
 ❌ BANNED PHRASES — NEVER say any of these:
 - "I processed your request"
@@ -609,33 +615,21 @@ Always provide exact values. Never use placeholder ranges.`;
       {/* ── Main Chat Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full relative min-w-0">
 
-        {/* ── Sleek Top Header with New Chat ────────────────── */}
+        {/* ── Sleek Top Header with Visual Separator ────────────────── */}
         <div
-          className="hidden md:flex items-center justify-between px-4 py-3 flex-shrink-0 mobile-sub-header"
+          className="hidden md:flex items-center justify-between px-6 py-4 flex-shrink-0 mobile-sub-header"
           style={{
-            borderBottom: '1px solid rgba(255,255,255,0.04)',
-            background: 'rgba(3,0,20,0.6)',
-            backdropFilter: 'blur(12px)',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            background: '#09051d',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
           }}
         >
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}>
-              <Sparkles className="w-3.5 h-3.5 text-white" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}>
+              <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Ama AI Assistant</span>
+            <span className="text-sm font-semibold tracking-wide" style={{ color: '#f1f5f9' }}>Ama AI Assistant</span>
           </div>
-
-          <button
-            onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all shadow-lg hover:scale-[1.02] active:scale-[0.98]"
-            style={{
-              background: 'linear-gradient(135deg, #6366f1, #a855f7)',
-              color: '#fff',
-              boxShadow: '0 4px 12px rgba(99,102,241,0.2)'
-            }}
-          >
-            <Plus className="w-3.5 h-3.5" /> New Chat
-          </button>
         </div>
 
         {/* ── Messages or Welcome ──────────────────────────────────────── */}
@@ -675,21 +669,6 @@ Always provide exact values. Never use placeholder ranges.`;
                       <ExternalLink className="w-3 h-3" /> Connect Gmail to send emails
                     </a>
                   )}
-                </div>
-
-                {/* Mobile-only New Chat button */}
-                <div className="flex md:hidden justify-center mt-3">
-                  <button
-                    onClick={() => { setActiveSessionId(null); setHistoryOpen(false); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-md active:scale-[0.98]"
-                    style={{
-                      background: 'linear-gradient(135deg, #6366f1, #a855f7)',
-                      color: '#fff',
-                      boxShadow: '0 4px 10px rgba(99,102,241,0.2)'
-                    }}
-                  >
-                    <Plus className="w-3.5 h-3.5" /> New Chat
-                  </button>
                 </div>
               </motion.div>
 
