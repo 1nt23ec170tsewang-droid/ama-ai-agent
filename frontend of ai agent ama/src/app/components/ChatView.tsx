@@ -212,12 +212,18 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     return [];
   });
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
-    try {
-      const saved = localStorage.getItem('ama_chat_sessions');
-      if (saved) { const p = JSON.parse(saved); return p.length > 0 ? p[0].id : null; }
-    } catch (_) {}
-    return null;
+    return localStorage.getItem('ama_active_session_id') || null;
   });
+
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem('ama_active_session_id', activeSessionId);
+    } else {
+      localStorage.removeItem('ama_active_session_id');
+    }
+    // Sync with sidebar
+    window.dispatchEvent(new CustomEvent('select_chat_session', { detail: activeSessionId }));
+  }, [activeSessionId]);
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
   const messages: any[] = activeSession ? activeSession.messages : [];
@@ -649,7 +655,12 @@ Always provide exact values. Never use placeholder ranges.`;
   // ── External events ───────────────────────────────────────────────────────
   useEffect(() => { if (sidebarOpen) setHistoryOpen(false); }, [sidebarOpen]);
   useEffect(() => {
-    const handle = (e: any) => setActiveSessionId(e.detail);
+    const handle = (e: any) => {
+      setActiveSessionId(prev => {
+        if (prev !== e.detail) return e.detail;
+        return prev;
+      });
+    };
     window.addEventListener('select_chat_session', handle);
     return () => window.removeEventListener('select_chat_session', handle);
   }, []);

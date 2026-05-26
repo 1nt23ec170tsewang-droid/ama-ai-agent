@@ -44,7 +44,9 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   const { profile } = useSettings();
 
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    return localStorage.getItem('ama_active_session_id') || null;
+  });
 
   useEffect(() => {
     const updateSessions = () => {
@@ -64,19 +66,18 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   }, []);
 
   useEffect(() => {
-    // Sync initial active session from localStorage
-    try {
-      const saved = localStorage.getItem('ama_chat_sessions');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.length > 0) {
-          setActiveSessionId(parsed[0].id);
-        }
-      }
-    } catch(e){}
-
     const handleSelect = (e: any) => {
-      setActiveSessionId(e.detail);
+      setActiveSessionId(prev => {
+        if (prev !== e.detail) {
+          if (e.detail) {
+            localStorage.setItem('ama_active_session_id', e.detail);
+          } else {
+            localStorage.removeItem('ama_active_session_id');
+          }
+          return e.detail;
+        }
+        return prev;
+      });
     };
     window.addEventListener('select_chat_session', handleSelect);
     return () => window.removeEventListener('select_chat_session', handleSelect);
@@ -146,7 +147,12 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
             <button
               key={item.id}
               id={`nav-${item.id}`}
-              onClick={() => onViewChange(item.id)}
+              onClick={() => {
+                if (item.id === 'chat') {
+                  window.dispatchEvent(new CustomEvent('select_chat_session', { detail: null }));
+                }
+                onViewChange(item.id);
+              }}
               className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg mb-1 transition-all ${
                 isActive
                   ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/40'
