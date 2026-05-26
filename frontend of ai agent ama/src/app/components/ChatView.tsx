@@ -591,9 +591,10 @@ Always provide exact values. Never use placeholder ranges.`;
             display: none !important;
           }
           .mobile-compact-welcome {
-            padding-top: 2rem !important;
-            padding-bottom: 1rem !important;
+            padding-top: 2.5rem !important;
+            padding-bottom: 2rem !important;
             justify-content: flex-start !important;
+            height: 100% !important;
           }
           .mobile-chips-container {
             display: flex !important;
@@ -636,9 +637,9 @@ Always provide exact values. Never use placeholder ranges.`;
         {!showMessages ? (
           /* Welcome screen */
           <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 overflow-y-auto mobile-compact-welcome">
-            <div className="w-full max-w-2xl mx-auto">
+            <div className="w-full max-w-2xl mx-auto flex flex-col justify-between h-full md:h-auto">
               <motion.div
-                className="text-center mb-3 md:mb-10"
+                className="text-center mb-3 md:mb-10 shrink-0"
                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, ease: 'easeOut' }}
               >
@@ -672,49 +673,52 @@ Always provide exact values. Never use placeholder ranges.`;
                 </div>
               </motion.div>
 
-              {/* Center input on welcome */}
-              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
-                <InputBar
-                  input={input} setInput={setInput} textareaRef={textareaRef}
-                  selectedFiles={selectedFiles}
-                  onRemoveFile={i => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
-                  fileInputRef={fileInputRef} onFileSelect={handleFileSelect}
-                  onSend={handleSend} isLoading={isLoading} onStop={stopGeneration}
-                />
-              </motion.div>
+              {/* Bottom input section pushed down on mobile */}
+              <div className="flex flex-col mt-auto w-full space-y-3 shrink-0 pb-1">
+                {/* Center input on welcome */}
+                <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
+                  <InputBar
+                    input={input} setInput={setInput} textareaRef={textareaRef}
+                    selectedFiles={selectedFiles}
+                    onRemoveFile={i => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
+                    fileInputRef={fileInputRef} onFileSelect={handleFileSelect}
+                    onSend={handleSend} isLoading={isLoading} onStop={stopGeneration}
+                  />
+                </motion.div>
 
-              {/* Suggestion chips (swipeable horizontally on mobile, wrapped grid on desktop) */}
-              <motion.div
-                className="flex overflow-x-auto whitespace-nowrap md:flex-wrap md:justify-center gap-2 mt-3 md:mt-6 pb-3 px-2 w-full scrollbar-none mobile-chips-container"
-                style={{
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none'
-                }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-              >
-                {SUGGESTION_CHIPS.map((chip, i) => {
-                  const Icon = chip.icon;
-                  return (
-                    <motion.button
-                      key={chip.id}
-                      onClick={() => handleChipClick(chip)}
-                      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.3 + i * 0.05 }}
-                      whileHover={{ scale: 1.04, y: -1 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="flex-shrink-0 flex items-center gap-2 px-3.5 py-2 md:px-4 md:py-2.5 rounded-full text-xs font-medium transition-all mobile-chip"
-                      style={{
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        color: '#94a3b8',
-                      }}
-                    >
-                      <Icon className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
-                      {chip.label}
-                    </motion.button>
-                  );
-                })}
-              </motion.div>
+                {/* Suggestion chips (swipeable horizontally on mobile, wrapped grid on desktop) */}
+                <motion.div
+                  className="flex overflow-x-auto whitespace-nowrap md:flex-wrap md:justify-center gap-2 mt-3 md:mt-6 pb-3 px-2 w-full scrollbar-none mobile-chips-container"
+                  style={{
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none'
+                  }}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+                >
+                  {SUGGESTION_CHIPS.map((chip, i) => {
+                    const Icon = chip.icon;
+                    return (
+                      <motion.button
+                        key={chip.id}
+                        onClick={() => handleChipClick(chip)}
+                        initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.3 + i * 0.05 }}
+                        whileHover={{ scale: 1.04, y: -1 }}
+                        whileTap={{ scale: 0.97 }}
+                        className="flex-shrink-0 flex items-center gap-2 px-3.5 py-2 md:px-4 md:py-2.5 rounded-full text-xs font-medium transition-all mobile-chip"
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          color: '#94a3b8',
+                        }}
+                      >
+                        <Icon className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
+                        {chip.label}
+                      </motion.button>
+                    );
+                  })}
+                </motion.div>
+              </div>
             </div>
           </div>
         ) : (
@@ -1019,7 +1023,7 @@ function InputBar({
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask Ama anything… (Shift+Enter for newline)"
+          placeholder="Ask Ama anything…"
           disabled={isLoading && !input}
           className="flex-1 py-2 bg-transparent focus:outline-none text-sm resize-none overflow-hidden"
           style={{

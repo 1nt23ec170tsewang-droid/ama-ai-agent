@@ -166,71 +166,75 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         })}
       </nav>
 
-      {/* Chat History Section */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col min-h-0">
-        <div className="flex items-center justify-between mb-2 px-2 shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <MessageSquare className="w-3 h-3 text-slate-500" />
-            Recent Chats
-          </span>
-          <button 
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent('select_chat_session', { detail: null }));
-              onViewChange('chat'); 
-            }}
-            className="text-[10px] px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 rounded font-bold transition-all border border-amber-500/20"
-          >
-            + NEW
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto space-y-1 pr-1 scrollbar-none">
-          {chatSessions.length === 0 ? (
-            <div className="text-center py-6 px-2 text-xs text-slate-500 italic">
-              No previous chats
-            </div>
-          ) : (
-            chatSessions.map(session => {
-              const isActive = activeView === 'chat' && activeSessionId === session.id;
-              return (
-                <div 
-                  key={session.id} 
-                  className={`group relative flex items-center justify-between rounded-lg transition-all ${
-                    isActive 
-                      ? 'bg-slate-700/60 text-white shadow-sm border-l-2 border-amber-500' 
-                      : 'text-slate-300 hover:bg-slate-800/40 hover:text-white'
-                  }`}
-                >
-                  <button
-                    onClick={() => {
-                      window.dispatchEvent(new CustomEvent('select_chat_session', { detail: session.id }));
-                      onViewChange('chat');
-                    }}
-                    className="flex-1 text-left text-xs p-2.5 truncate pr-16"
-                    title={session.title || 'New Chat'}
+      {/* Chat History Section or Spacer */}
+      {activeView === 'chat' ? (
+        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col min-h-0">
+          <div className="flex items-center justify-between mb-2 px-2 shrink-0">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <MessageSquare className="w-3 h-3 text-slate-500" />
+              Recent Chats
+            </span>
+            <button 
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('select_chat_session', { detail: null }));
+                onViewChange('chat'); 
+              }}
+              className="text-[10px] px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 rounded font-bold transition-all border border-amber-500/20"
+            >
+              + NEW
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto space-y-1 pr-1 scrollbar-none">
+            {chatSessions.length === 0 ? (
+              <div className="text-center py-6 px-2 text-xs text-slate-500 italic">
+                No previous chats
+              </div>
+            ) : (
+              chatSessions.map(session => {
+                const isActive = activeView === 'chat' && activeSessionId === session.id;
+                return (
+                  <div 
+                    key={session.id} 
+                    className={`group relative flex items-center justify-between rounded-lg transition-all ${
+                      isActive 
+                        ? 'bg-slate-700/60 text-white shadow-sm border-l-2 border-amber-500' 
+                        : 'text-slate-300 hover:bg-slate-800/40 hover:text-white'
+                    }`}
                   >
-                    {session.title || 'New Chat'}
-                  </button>
-                  
-                  {/* Timestamp and Trash Button container */}
-                  <div className="absolute right-2 flex items-center gap-1.5">
-                    <span className="text-[9px] text-slate-500 group-hover:hidden transition-all">
-                      {getRelativeTime(session.id)}
-                    </span>
                     <button
-                      onClick={(e) => handleDeleteSession(e, session.id)}
-                      className="hidden group-hover:flex p-1 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded transition-all"
-                      title="Delete chat"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('select_chat_session', { detail: session.id }));
+                        onViewChange('chat');
+                      }}
+                      className="flex-1 text-left text-xs p-2.5 truncate pr-16"
+                      title={session.title || 'New Chat'}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      {session.title || 'New Chat'}
                     </button>
+                    
+                    {/* Timestamp and Trash Button container */}
+                    <div className="absolute right-2 flex items-center gap-1.5">
+                      <span className="text-[9px] text-slate-500 group-hover:hidden transition-all">
+                        {getRelativeTime(session.id)}
+                      </span>
+                      <button
+                        onClick={(e) => handleDeleteSession(e, session.id)}
+                        className="hidden group-hover:flex p-1 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded transition-all"
+                        title="Delete chat"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1" />
+      )}
 
       {/* User footer */}
       <div className="p-4 border-t border-slate-700 shrink-0">
