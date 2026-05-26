@@ -82,23 +82,22 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     return () => window.removeEventListener('select_chat_session', handleSelect);
   }, []);
 
-  const handleDeleteSession = (e: React.MouseEvent, id: string) => {
+  const handleDeleteSession = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!window.confirm('Delete this chat session?')) return;
     
-    const saved = localStorage.getItem('ama_chat_sessions');
-    if (saved) {
+    if (user?.id) {
       try {
-        const sessionsList = JSON.parse(saved);
-        const updated = sessionsList.filter((s: any) => s.id !== id);
-        localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
-        window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+        const { db } = await import('../utils/firebase');
+        const { doc, deleteDoc } = await import('firebase/firestore');
+        await deleteDoc(doc(db, 'users', user.id, 'conversations', id));
         
         if (activeSessionId === id) {
-          const nextActive = updated.length > 0 ? updated[0].id : null;
-          window.dispatchEvent(new CustomEvent('select_chat_session', { detail: nextActive }));
+          window.dispatchEvent(new CustomEvent('select_chat_session', { detail: null }));
         }
-      } catch(err){}
+      } catch(err){
+        console.error('Failed to delete session:', err);
+      }
     }
   };
 

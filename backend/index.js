@@ -306,7 +306,7 @@ const sanitizeInput = (val) => {
 // ──────────────────────────────────────────
 // JWT AUTHENTICATION MIDDLEWARES
 // ──────────────────────────────────────────
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   let token = authHeader && authHeader.split(' ')[1];
   
@@ -316,6 +316,22 @@ const authenticateToken = (req, res, next) => {
   
   if (!token) return res.status(401).json({ message: 'Access Denied: No token provided.' });
   
+  if (admin && admin.apps.length > 0) {
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      req.user = {
+        id: decodedToken.uid,
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+        name: decodedToken.name || decodedToken.email || 'User',
+        role: decodedToken.role || 'user'
+      };
+      return next();
+    } catch (firebaseErr) {
+      logStructured('INFO', 'FIREBASE_VERIFICATION_FALLBACK', { error: firebaseErr.message });
+    }
+  }
+
   jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] }, (err, user) => {
     if (err) {
       logStructured('WARN', 'INVALID_ACCESS_TOKEN', { ip: req.ip, error: err.message });
@@ -326,7 +342,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-const optionalAuth = (req, res, next) => {
+const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   let token = authHeader && authHeader.split(' ')[1];
   
@@ -339,6 +355,22 @@ const optionalAuth = (req, res, next) => {
     return next();
   }
   
+  if (admin && admin.apps.length > 0) {
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      req.user = {
+        id: decodedToken.uid,
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+        name: decodedToken.name || decodedToken.email || 'User',
+        role: decodedToken.role || 'user'
+      };
+      return next();
+    } catch (firebaseErr) {
+      // fallback
+    }
+  }
+
   jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] }, (err, user) => {
     req.user = err ? { id: 'guest', name: 'User', email: '', company: '', role: '' } : user;
     next();

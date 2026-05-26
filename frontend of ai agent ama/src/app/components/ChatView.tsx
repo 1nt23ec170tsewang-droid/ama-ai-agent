@@ -10,6 +10,8 @@ import {
   MessageSquare, Trash2, Mic, Menu, Square, Copy,
   Check, RefreshCw, Plus, ChevronDown, ExternalLink, ShieldCheck,
 } from 'lucide-react';
+import { collection, doc, onSnapshot, setDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
@@ -206,11 +208,6 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     try {
       const saved = localStorage.getItem('ama_chat_sessions');
       if (saved) return JSON.parse(saved);
-      const old = localStorage.getItem('ama_chat_history');
-      if (old) {
-        const parsed = JSON.parse(old);
-        if (parsed.length > 0) return [{ id: Date.now().toString(), title: parsed.find((m: any) => m.role === 'user')?.content || 'Previous Chat', messages: parsed }];
-      }
     } catch (_) {}
     return [];
   });
@@ -224,6 +221,43 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
   const messages: any[] = activeSession ? activeSession.messages : [];
+
+  // ── Real-Time Firestore Chat Sync ─────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id || privacy?.incognitoMode) {
+      setSessions([]);
+      return;
+    }
+
+    const conversationsQuery = query(
+      collection(db, 'users', user.id, 'conversations'),
+      orderBy('lastUpdated', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
+      const sessionsList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title || 'New Chat',
+          messages: data.messages || [],
+          lastUpdated: data.lastUpdated
+        };
+      });
+      setSessions(sessionsList);
+      localStorage.setItem('ama_chat_sessions', JSON.stringify(sessionsList));
+      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+
+      // If the active session was deleted by another device, clear activeSessionId
+      if (activeSessionId && !sessionsList.some(s => s.id === activeSessionId)) {
+        setActiveSessionId(null);
+      }
+    }, (error) => {
+      console.error('Real-time chat history sync failed:', error);
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, privacy?.incognitoMode, activeSessionId]);
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [input, setInput] = useState('');
@@ -292,40 +326,58 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
   };
 
   // ── Session helpers ──────────────────────────────────────────────────────
-  const updateSessionMessages = (sessionId: string, newHistory: any[], sessionTitle: string) => {
+  const updateSessionMessages = async (sessionId: string, newHistory: any[], sessionTitle: string) => {
+    if (!user?.id || privacy?.incognitoMode) return;
     const storable = newHistory.map(m => ({
-      ...m,
-      files: m.files?.map((f: any) => ({ name: f.name || 'Attachment', type: f.type || '' }))
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp || new Date().toISOString(),
+      files: m.files?.map((f: any) => ({ name: f.name || 'Attachment', type: f.type || '' })) || []
     }));
-    setSessions(prev => {
-      if (privacy?.incognitoMode) return prev;
-      const exists = prev.some(s => s.id === sessionId);
-      const updated = exists
-        ? prev.map(s => s.id === sessionId ? { ...s, messages: storable } : s)
-        : [{ id: sessionId, title: sessionTitle, messages: storable }, ...prev];
-      localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
-      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
-      return updated;
-    });
+
+    try {
+      const conversationRef = doc(db, 'users', user.id, 'conversations', sessionId);
+      await setDoc(conversationRef, {
+        id: sessionId,
+        title: sessionTitle.substring(0, 40),
+        messages: storable,
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.error('Failed to write conversation to Firestore:', e);
+    }
   };
 
-  const deleteSession = (e: React.MouseEvent, id: string) => {
+  const deleteSession = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setSessions(prev => {
-      const updated = prev.filter(s => s.id !== id);
-      localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
-      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
-      return updated;
-    });
-    if (activeSessionId === id) setActiveSessionId(null);
+    if (!window.confirm('Delete this chat session?')) return;
+
+    if (user?.id) {
+      try {
+        await deleteDoc(doc(db, 'users', user.id, 'conversations', id));
+        if (activeSessionId === id) {
+          setActiveSessionId(null);
+        }
+      } catch (e) {
+        console.error('Failed to delete conversation from Firestore:', e);
+      }
+    }
   };
 
-  const clearAllSessions = () => {
+  const clearAllSessions = async () => {
     if (!window.confirm('Delete all chat history?')) return;
-    setSessions([]);
-    setActiveSessionId(null);
-    localStorage.removeItem('ama_chat_sessions');
-    window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+    if (user?.id) {
+      try {
+        const { getDocs } = await import('firebase/firestore');
+        const q = query(collection(db, 'users', user.id, 'conversations'));
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+        setActiveSessionId(null);
+      } catch (e) {
+        console.error('Failed to clear sessions:', e);
+      }
+    }
   };
 
   // ── System prompt ────────────────────────────────────────────────────────
