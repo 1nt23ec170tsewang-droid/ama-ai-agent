@@ -85,7 +85,7 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// ── localStorage helpers (fallback/resilience) ───────────────────────────────────
+// ── localStorage helpers ───────────────────────────────────────────────────────
 function load<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -102,6 +102,28 @@ function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 }
 
+// ── API helpers (Fallback path) ────────────────────────────────────────────────
+function getToken(): string | null {
+  return localStorage.getItem('authToken');
+}
+
+function authHeaders() {
+  const token = getToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function apiFetch(path: string, options?: RequestInit) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { ...authHeaders(), ...(options?.headers || {}) },
+  });
+  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  return res.json();
+}
+
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function AppProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -112,81 +134,164 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [metrics, setMetrics] = useState<Metric[]>(() => load('ama_metrics', []));
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // ── Synchronize Tasks & Events in Real-Time via Firestore ───────────────────────
+  // ── Original REST sync fallback ──────────────────────────────────────────────
+  const migrateLocalData = useCallback(async () => {
+    const migrated = localStorage.getItem('ama_migrated_to_backend');
+    if (migrated) return;
+
+    const localTasks: AmaTask[] = load('ama_tasks', []);
+    const localEvents: AmaEvent[] = load('ama_events', []);
+
+    for (const task of localTasks) {
+      try { await apiFetch('/api/tasks', { method: 'POST', body: JSON.stringify(task) }); } catch {}
+    }
+    for (const evt of localEvents) {
+      if (!evt.id.startsWith('task_') && !evt.id.startsWith('cal_')) {
+        try { await apiFetch('/api/events', { method: 'POST', body: JSON.stringify(evt) }); } catch {}
+      }
+    }
+    localStorage.setItem('ama_migrated_to_backend', 'true');
+  }, []);
+
+  const syncFromBackendFallback = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+
+    await migrateLocalData();
+    setIsSyncing(true);
+    try {
+      const [tasksData, eventsData, metricsData] = await Promise.all([
+        apiFetch('/api/tasks').catch(() => null),
+        apiFetch('/api/events').catch(() => null),
+        apiFetch('/api/metrics').catch(() => null),
+      ]);
+
+      if (Array.isArray(tasksData)) {
+        setTasks(tasksData);
+        save('ama_tasks', tasksData);
+      }
+      if (Array.isArray(eventsData)) {
+        const email = localStorage.getItem('ama_gmail_email');
+        const isConnected = localStorage.getItem('ama_calendar_connected') === 'true';
+        if (email && isConnected) {
+          try {
+            const calRes = await fetch(`${API_BASE}/api/calendar/events?email=${encodeURIComponent(email)}`);
+            if (calRes.ok) {
+              const calData = await calRes.json();
+              if (calData.events) {
+                const merged = [...eventsData, ...calData.events.filter(
+                  (ce: AmaEvent) => !eventsData.find((e: AmaEvent) => e.id === ce.id)
+                )];
+                setEvents(merged);
+                save('ama_events', merged);
+              } else {
+                setEvents(eventsData);
+                save('ama_events', eventsData);
+              }
+            } else {
+              setEvents(eventsData);
+              save('ama_events', eventsData);
+            }
+          } catch {
+            setEvents(eventsData);
+            save('ama_events', eventsData);
+          }
+        } else {
+          setEvents(eventsData);
+          save('ama_events', eventsData);
+        }
+      }
+      if (Array.isArray(metricsData)) {
+        setMetrics(metricsData);
+        save('ama_metrics', metricsData);
+      }
+    } catch (e) {
+      console.warn('⚠️ REST API sync failed — using localStorage cache fallback', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [migrateLocalData]);
+
+  // ── Unified Database Observers or REST API sync engine ────────────────────────
   useEffect(() => {
     if (!user?.id) {
-      // Clear user data upon logout
       setTasks([]);
       setEvents([]);
       return;
     }
 
-    setIsSyncing(true);
+    if (db) {
+      // Modern real-time path
+      setIsSyncing(true);
 
-    // 1. Listen to user specific Tasks collection `/users/{uid}/tasks`
-    const tasksQuery = query(collection(db, 'users', user.id, 'tasks'), orderBy('createdAt', 'desc'));
-    const unsubscribeTasks = onSnapshot(tasksQuery, (snapshot) => {
-      const tasksList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AmaTask));
-      setTasks(tasksList);
-      save('ama_tasks', tasksList);
-      setIsSyncing(false);
-    }, (error) => {
-      console.error('Real-time tasks sync failed:', error);
-      setIsSyncing(false);
-    });
+      const tasksQuery = query(collection(db, 'users', user.id, 'tasks'), orderBy('createdAt', 'desc'));
+      const unsubscribeTasks = onSnapshot(tasksQuery, (snapshot) => {
+        const tasksList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AmaTask));
+        setTasks(tasksList);
+        save('ama_tasks', tasksList);
+        setIsSyncing(false);
+      }, (error) => {
+        console.error('Real-time tasks sync failed:', error);
+        setIsSyncing(false);
+      });
 
-    // 2. Listen to user specific Events collection `/users/{uid}/events`
-    const unsubscribeEvents = onSnapshot(collection(db, 'users', user.id, 'events'), (snapshot) => {
-      const eventsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AmaEvent));
-
-      // Merging with Google Calendar events if connected
-      const email = localStorage.getItem('ama_gmail_email');
-      const isConnected = localStorage.getItem('ama_calendar_connected') === 'true';
-      if (email && isConnected) {
-        fetch(`${API_BASE}/api/calendar/events?email=${encodeURIComponent(email)}`)
-          .then(res => res.ok ? res.json() : null)
-          .then(calData => {
-            if (calData?.events) {
-              const merged = [...eventsList, ...calData.events.filter(
-                (ce: AmaEvent) => !eventsList.find((e: AmaEvent) => e.id === ce.id)
-              )];
-              setEvents(merged);
-              save('ama_events', merged);
-            } else {
+      const unsubscribeEvents = onSnapshot(collection(db, 'users', user.id, 'events'), (snapshot) => {
+        const eventsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AmaEvent));
+        const email = localStorage.getItem('ama_gmail_email');
+        const isConnected = localStorage.getItem('ama_calendar_connected') === 'true';
+        if (email && isConnected) {
+          fetch(`${API_BASE}/api/calendar/events?email=${encodeURIComponent(email)}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(calData => {
+              if (calData?.events) {
+                const merged = [...eventsList, ...calData.events.filter(
+                  (ce: AmaEvent) => !eventsList.find((e: AmaEvent) => e.id === ce.id)
+                )];
+                setEvents(merged);
+                save('ama_events', merged);
+              } else {
+                setEvents(eventsList);
+                save('ama_events', eventsList);
+              }
+            })
+            .catch(() => {
               setEvents(eventsList);
               save('ama_events', eventsList);
-            }
-          })
-          .catch(() => {
-            setEvents(eventsList);
-            save('ama_events', eventsList);
-          });
-      } else {
-        setEvents(eventsList);
-        save('ama_events', eventsList);
-      }
-    }, (error) => {
-      console.error('Real-time events sync failed:', error);
-    });
+            });
+        } else {
+          setEvents(eventsList);
+          save('ama_events', eventsList);
+        }
+      }, (error) => {
+        console.error('Real-time events sync failed:', error);
+      });
 
-    // 3. Listen to user specific Metrics collection `/users/{uid}/metrics`
-    const unsubscribeMetrics = onSnapshot(collection(db, 'users', user.id, 'metrics'), (snapshot) => {
-      const metricsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Metric));
-      setMetrics(metricsList);
-      save('ama_metrics', metricsList);
-    }, (error) => {
-      console.error('Real-time metrics sync failed:', error);
-    });
+      const unsubscribeMetrics = onSnapshot(collection(db, 'users', user.id, 'metrics'), (snapshot) => {
+        const metricsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Metric));
+        setMetrics(metricsList);
+        save('ama_metrics', metricsList);
+      }, (error) => {
+        console.error('Real-time metrics sync failed:', error);
+      });
 
-    return () => {
-      unsubscribeTasks();
-      unsubscribeEvents();
-      unsubscribeMetrics();
-    };
-  }, [user?.id]);
+      return () => {
+        unsubscribeTasks();
+        unsubscribeEvents();
+        unsubscribeMetrics();
+      };
+    } else {
+      // Fallback polling path
+      syncFromBackendFallback();
+      const interval = setInterval(syncFromBackendFallback, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [user?.id, syncFromBackendFallback]);
 
-  // Keep other local lists persistent in localStorage
+  // Persistent localStorage fallback updates
   useEffect(() => { save('ama_team', team); }, [team]);
+  useEffect(() => { save('ama_events', events); }, [events]);
+  useEffect(() => { save('ama_tasks', tasks); }, [tasks]);
+  useEffect(() => { save('ama_metrics', metrics); }, [metrics]);
 
   // ── Events write handlers ───────────────────────────────────────────────────
   const addEvent = async (event: Omit<AmaEvent, 'id'>) => {
@@ -194,11 +299,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     
     const email = localStorage.getItem('ama_gmail_email');
     const isConnected = localStorage.getItem('ama_calendar_connected') === 'true';
-
     let eventId = `evt_${Date.now()}`;
 
     if (email && isConnected) {
-      // Try Google Calendar first
       try {
         const res = await fetch(`${API_BASE}/api/calendar/events`, {
           method: 'POST',
@@ -214,44 +317,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const newEvent: AmaEvent = { id: eventId, ...event };
-    await setDoc(doc(db, 'users', user.id, 'events', eventId), newEvent);
+    if (db) {
+      const newEvent: AmaEvent = { id: eventId, ...event };
+      await setDoc(doc(db, 'users', user.id, 'events', eventId), newEvent);
+    } else {
+      // Fallback REST path
+      try {
+        const saved = await apiFetch('/api/events', {
+          method: 'POST',
+          body: JSON.stringify(event),
+        });
+        setEvents(prev => [...prev, saved]);
+      } catch {
+        const newEvent: AmaEvent = { id: eventId, ...event };
+        setEvents(prev => [...prev, newEvent]);
+      }
+    }
   };
 
   const updateEvent = async (id: string, data: Partial<AmaEvent>) => {
     if (!user?.id) return;
-    await setDoc(doc(db, 'users', user.id, 'events', id), data, { merge: true });
+    if (db) {
+      await setDoc(doc(db, 'users', user.id, 'events', id), data, { merge: true });
+    } else {
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, ...data } : e));
+      try { await apiFetch(`/api/events/${id}`, { method: 'PUT', body: JSON.stringify(data) }); } catch {}
+    }
   };
 
   const deleteEvent = async (id: string) => {
     if (!user?.id) return;
-    await deleteDoc(doc(db, 'users', user.id, 'events', id));
+    if (db) {
+      await deleteDoc(doc(db, 'users', user.id, 'events', id));
+    } else {
+      setEvents(prev => prev.filter(e => e.id !== id));
+      try { await apiFetch(`/api/events/${id}`, { method: 'DELETE' }); } catch {}
+    }
   };
 
   // ── Tasks write handlers ────────────────────────────────────────────────────
   const addTask = async (task: Omit<AmaTask, 'id' | 'createdAt'>) => {
     if (!user?.id) return;
-    
     const taskId = `task_${Date.now()}`;
     const newTask: AmaTask = {
       id: taskId,
       createdAt: new Date().toISOString(),
       ...task
     };
-    await setDoc(doc(db, 'users', user.id, 'tasks', taskId), newTask);
+
+    if (db) {
+      await setDoc(doc(db, 'users', user.id, 'tasks', taskId), newTask);
+    } else {
+      try {
+        const saved = await apiFetch('/api/tasks', { method: 'POST', body: JSON.stringify(task) });
+        setTasks(prev => [...prev, saved]);
+      } catch {
+        setTasks(prev => [...prev, newTask]);
+      }
+    }
   };
 
   const updateTask = async (id: string, data: Partial<AmaTask>) => {
     if (!user?.id) return;
-    await setDoc(doc(db, 'users', user.id, 'tasks', id), data, { merge: true });
+    if (db) {
+      await setDoc(doc(db, 'users', user.id, 'tasks', id), data, { merge: true });
+    } else {
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
+      try { await apiFetch(`/api/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }); } catch {}
+    }
   };
 
   const deleteTask = async (id: string) => {
     if (!user?.id) return;
-    await deleteDoc(doc(db, 'users', user.id, 'tasks', id));
+    if (db) {
+      await deleteDoc(doc(db, 'users', user.id, 'tasks', id));
+    } else {
+      setTasks(prev => prev.filter(t => t.id !== id));
+      try { await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' }); } catch {}
+    }
   };
 
-  // ── Team write handlers (local for now) ──────────────────────────────────────
+  // ── Team write handlers ─────────────────────────────────────────────────────
   const addTeamMember = (member: Omit<TeamMember, 'id' | 'avatar'>) => {
     const newMember: TeamMember = { id: `member_${Date.now()}`, avatar: initials(member.name), ...member };
     setTeam(prev => [...prev, newMember]);
@@ -267,25 +413,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addMetric = async (metric: Omit<Metric, 'id' | 'updatedAt'>) => {
     if (!user?.id) return;
     const metricId = `metric_${Date.now()}`;
-    const newMetric: Metric = {
-      id: metricId,
-      updatedAt: new Date().toISOString(),
-      ...metric
-    };
-    await setDoc(doc(db, 'users', user.id, 'metrics', metricId), newMetric);
+    const newMetric: Metric = { id: metricId, updatedAt: new Date().toISOString(), ...metric };
+
+    if (db) {
+      await setDoc(doc(db, 'users', user.id, 'metrics', metricId), newMetric);
+    } else {
+      try {
+        const saved = await apiFetch('/api/metrics', { method: 'POST', body: JSON.stringify(metric) });
+        setMetrics(prev => [...prev, saved]);
+      } catch {
+        setMetrics(prev => [...prev, newMetric]);
+      }
+    }
   };
 
   const updateMetric = async (id: string, data: Partial<Metric>) => {
     if (!user?.id) return;
-    await setDoc(doc(db, 'users', user.id, 'metrics', id), {
-      ...data,
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
+    if (db) {
+      await setDoc(doc(db, 'users', user.id, 'metrics', id), {
+        ...data,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } else {
+      setMetrics(prev => prev.map(m => m.id === id ? { ...m, ...data, updatedAt: new Date().toISOString() } : m));
+      try { await apiFetch(`/api/metrics/${id}`, { method: 'PUT', body: JSON.stringify(data) }); } catch {}
+    }
   };
 
   const deleteMetric = async (id: string) => {
     if (!user?.id) return;
-    await deleteDoc(doc(db, 'users', user.id, 'metrics', id));
+    if (db) {
+      await deleteDoc(doc(db, 'users', user.id, 'metrics', id));
+    } else {
+      setMetrics(prev => prev.filter(m => m.id !== id));
+      try { await apiFetch(`/api/metrics/${id}`, { method: 'DELETE' }); } catch {}
+    }
   };
 
   return (

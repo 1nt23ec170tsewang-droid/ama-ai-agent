@@ -229,34 +229,47 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
       return;
     }
 
-    const conversationsQuery = query(
-      collection(db, 'users', user.id, 'conversations'),
-      orderBy('lastUpdated', 'desc')
-    );
+    if (db) {
+      const conversationsQuery = query(
+        collection(db, 'users', user.id, 'conversations'),
+        orderBy('lastUpdated', 'desc')
+      );
 
-    const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
-      const sessionsList = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.title || 'New Chat',
-          messages: data.messages || [],
-          lastUpdated: data.lastUpdated
-        };
+      const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
+        const sessionsList = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title || 'New Chat',
+            messages: data.messages || [],
+            lastUpdated: data.lastUpdated
+          };
+        });
+        setSessions(sessionsList);
+        localStorage.setItem('ama_chat_sessions', JSON.stringify(sessionsList));
+        window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+
+        // If the active session was deleted by another device, clear activeSessionId
+        if (activeSessionId && !sessionsList.some(s => s.id === activeSessionId)) {
+          setActiveSessionId(null);
+        }
+      }, (error) => {
+        console.error('Real-time chat history sync failed:', error);
       });
-      setSessions(sessionsList);
-      localStorage.setItem('ama_chat_sessions', JSON.stringify(sessionsList));
-      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
 
-      // If the active session was deleted by another device, clear activeSessionId
-      if (activeSessionId && !sessionsList.some(s => s.id === activeSessionId)) {
-        setActiveSessionId(null);
-      }
-    }, (error) => {
-      console.error('Real-time chat history sync failed:', error);
-    });
-
-    return () => unsubscribe();
+      return () => unsubscribe();
+    } else {
+      // Fallback: Read and listen to local storage modifications
+      const updateSessions = () => {
+        try {
+          const saved = localStorage.getItem('ama_chat_sessions');
+          if (saved) setSessions(JSON.parse(saved));
+        } catch (_) {}
+      };
+      updateSessions();
+      window.addEventListener('ama_chat_sessions_updated', updateSessions);
+      return () => window.removeEventListener('ama_chat_sessions_updated', updateSessions);
+    }
   }, [user?.id, privacy?.incognitoMode, activeSessionId]);
 
   // ── UI state ─────────────────────────────────────────────────────────────
@@ -327,7 +340,6 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
 
   // ── Session helpers ──────────────────────────────────────────────────────
   const updateSessionMessages = async (sessionId: string, newHistory: any[], sessionTitle: string) => {
-    if (!user?.id || privacy?.incognitoMode) return;
     const storable = newHistory.map(m => ({
       role: m.role,
       content: m.content,
@@ -335,16 +347,30 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
       files: m.files?.map((f: any) => ({ name: f.name || 'Attachment', type: f.type || '' })) || []
     }));
 
-    try {
-      const conversationRef = doc(db, 'users', user.id, 'conversations', sessionId);
-      await setDoc(conversationRef, {
-        id: sessionId,
-        title: sessionTitle.substring(0, 40),
-        messages: storable,
-        lastUpdated: new Date().toISOString()
-      }, { merge: true });
-    } catch (e) {
-      console.error('Failed to write conversation to Firestore:', e);
+    if (privacy?.incognitoMode) return;
+
+    if (db && user?.id) {
+      try {
+        const conversationRef = doc(db, 'users', user.id, 'conversations', sessionId);
+        await setDoc(conversationRef, {
+          id: sessionId,
+          title: sessionTitle.substring(0, 40),
+          messages: storable,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
+      } catch (e) {
+        console.error('Failed to write conversation to Firestore:', e);
+      }
+    } else {
+      setSessions(prev => {
+        const exists = prev.some(s => s.id === sessionId);
+        const updated = exists
+          ? prev.map(s => s.id === sessionId ? { ...s, messages: storable } : s)
+          : [{ id: sessionId, title: sessionTitle, messages: storable }, ...prev];
+        localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
+        window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+        return updated;
+      });
     }
   };
 
@@ -352,7 +378,7 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     e.stopPropagation();
     if (!window.confirm('Delete this chat session?')) return;
 
-    if (user?.id) {
+    if (db && user?.id) {
       try {
         await deleteDoc(doc(db, 'users', user.id, 'conversations', id));
         if (activeSessionId === id) {
@@ -361,12 +387,20 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
       } catch (e) {
         console.error('Failed to delete conversation from Firestore:', e);
       }
+    } else {
+      setSessions(prev => {
+        const updated = prev.filter(s => s.id !== id);
+        localStorage.setItem('ama_chat_sessions', JSON.stringify(updated));
+        window.dispatchEvent(new Event('ama_chat_sessions_updated'));
+        return updated;
+      });
+      if (activeSessionId === id) setActiveSessionId(null);
     }
   };
 
   const clearAllSessions = async () => {
     if (!window.confirm('Delete all chat history?')) return;
-    if (user?.id) {
+    if (db && user?.id) {
       try {
         const { getDocs } = await import('firebase/firestore');
         const q = query(collection(db, 'users', user.id, 'conversations'));
@@ -377,6 +411,11 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
       } catch (e) {
         console.error('Failed to clear sessions:', e);
       }
+    } else {
+      setSessions([]);
+      setActiveSessionId(null);
+      localStorage.removeItem('ama_chat_sessions');
+      window.dispatchEvent(new Event('ama_chat_sessions_updated'));
     }
   };
 

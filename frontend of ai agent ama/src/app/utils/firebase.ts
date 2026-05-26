@@ -11,14 +11,29 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
-export const app = initializeApp(firebaseConfig);
+// Check if variables are valid and not placeholders
+const isConfigValid = 
+  firebaseConfig.apiKey && 
+  firebaseConfig.apiKey !== 'your_firebase_api_key' && 
+  !firebaseConfig.apiKey.startsWith('your_') &&
+  !firebaseConfig.apiKey.includes('placeholder');
 
-// Initialize Firebase Auth & set persistence to LOCAL
-export const auth = getAuth(app);
-setPersistence(auth, browserLocalPersistence).catch((err) => {
-  console.error('Failed to set Firebase Auth session persistence to LOCAL:', err);
-});
+export let app: any = null;
+export let auth: any = null;
+export let db: any = null;
 
-// Initialize Cloud Firestore
-export const db = getFirestore(app);
+if (isConfigValid) {
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    setPersistence(auth, browserLocalPersistence).catch((err) => {
+      console.error('Failed to set Firebase Auth session persistence to LOCAL:', err);
+    });
+    db = getFirestore(app);
+    console.log('✅ Firebase Client successfully initialized.');
+  } catch (err) {
+    console.error('❌ Firebase initialization failed:', err);
+  }
+} else {
+  console.warn('⚠️ Firebase Client is running in hybrid offline fallback mode because environment variables are placeholders or unconfigured.');
+}
