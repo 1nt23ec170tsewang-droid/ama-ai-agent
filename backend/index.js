@@ -91,10 +91,10 @@ try {
 // OPENROUTER AI (Primary — GPT-4.1 via OpenRouter)
 // ──────────────────────────────────────────
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_MODEL   = 'openai/gpt-4.1';  // ChatGPT 4.1 via OpenRouter
+const OPENROUTER_MODEL   = 'openai/gpt-4o-mini';  // ChatGPT 4o Mini via OpenRouter
 
 if (OPENROUTER_API_KEY) {
-  console.log('✅ OpenRouter AI configured (gpt-4.1) — primary AI provider');
+  console.log('✅ OpenRouter AI configured (gpt-4o-mini) — primary AI provider');
 } else {
   console.warn('⚠️  OPENROUTER_API_KEY not set — will fall back to Gemini');
 }
@@ -1290,7 +1290,7 @@ app.post('/api/ama/chat/stream', optionalAuth, async (req, res) => {
   if (clientSystemPrompt) {
     systemContext = clientSystemPrompt;
   } else {
-    systemContext = `You are Ama, a sophisticated and helpful AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, and professional. Use structured Markdown. DO NOT use generic phrases like "I processed your request" — always give a real, helpful answer.
+    systemContext = `You are Ama, a sophisticated and helpful AI Chief of Staff for ${ctx.name}${ctx.company ? ` at ${ctx.company}` : ''}. You are concise, highly accurate, professional, and provide direct, actionable, and complete answers immediately — not only clarifying questions — unless the user's request is genuinely ambiguous and cannot be fulfilled without clarification. Use structured Markdown. DO NOT use generic phrases like "I processed your request" — always give a real, helpful answer.
 
 SCHEDULING RULES:
 - When a user asks to schedule a meeting or create a task, use reasonable defaults if info is missing.

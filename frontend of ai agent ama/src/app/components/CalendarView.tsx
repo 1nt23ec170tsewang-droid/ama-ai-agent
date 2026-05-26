@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Video, MapPin, Users, Plus, Edit2, Trash2, X, Calendar } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -64,6 +64,42 @@ export function CalendarView() {
     if (Math.abs(walk) > 5) setDidDrag(true);
     scrollRef.current.scrollLeft = scrollLeft - walk;
   };
+  const scrollToToday = () => {
+    setMonthOffset(0);
+    const today = new Date();
+    setSelectedDate(today);
+    
+    // Smoothly scroll today's date into the center of the strip
+    setTimeout(() => {
+      if (scrollRef.current) {
+        const currentDates = getMonthDates(0);
+        const todayIndex = currentDates.findIndex(d => isoDate(d) === todayISO);
+        if (todayIndex !== -1) {
+          const btnWidth = 80;
+          const containerWidth = scrollRef.current.clientWidth;
+          const targetScroll = (todayIndex * btnWidth) - (containerWidth / 2) + (btnWidth / 2);
+          scrollRef.current.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+        }
+      }
+    }, 50);
+  };
+
+  // Scroll to today's date on initial load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (scrollRef.current) {
+        const todayIndex = monthDates.findIndex(d => isoDate(d) === todayISO);
+        if (todayIndex !== -1) {
+          const btnWidth = 80;
+          const containerWidth = scrollRef.current.clientWidth;
+          const targetScroll = (todayIndex * btnWidth) - (containerWidth / 2) + (btnWidth / 2);
+          scrollRef.current.scrollLeft = Math.max(0, targetScroll);
+        }
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
   const selectedISO = isoDate(selectedDate);
 
   const dayEvents = events.filter(e => {
@@ -141,7 +177,7 @@ export function CalendarView() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { setMonthOffset(0); setSelectedDate(new Date()); }}
+              onClick={scrollToToday}
               className="px-3 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-sm font-medium"
             >
               Today

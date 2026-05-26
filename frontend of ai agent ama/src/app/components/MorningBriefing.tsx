@@ -67,7 +67,7 @@ TODAY'S EVENTS (${todayEvents.length}):
 ${eventSummary}
 
 Write a 3-4 sentence briefing covering: top priority, any urgent overdue items.
-End the briefing with an explicit, famous quote about ${randomTheme}. The quote MUST be wrapped in quotation marks and include the author's name (e.g., "Quote" - Author). Do NOT just write a motivational sentence; it must be a real historical or famous quote. Make sure you DO NOT use the same quote twice. Be direct and professional. No bullet points.`;
+End the briefing with an explicit, famous quote about ${randomTheme}. The quote MUST be wrapped in quotation marks and include the author's name (e.g., "Quote" - Author). The quote MUST be on its own separate line, separated by a blank line (two newlines) from the rest of your text. Do NOT just write a motivational sentence; it must be a real historical or famous quote. Make sure you DO NOT use the same quote twice. Be direct and professional. No bullet points.`;
 
     try {
       const result = await askClaude(prompt);
@@ -189,6 +189,7 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
                   {briefing.split('\n').map((line, idx) => {
                     const trimmed = line.trim();
                     if (!trimmed) return null;
+                    
                     // Check if it's a list item (starts with - * or digit followed by dot/parenthesis)
                     const isListItem = /^[*-]\s|^\d+[\s.)]/.test(trimmed);
                     if (isListItem) {
@@ -200,15 +201,46 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
                         </div>
                       );
                     }
-                    // Check if it's a quote (starts/ends with quote or contains quote format)
-                    const isQuote = trimmed.startsWith('"') || (trimmed.includes('"') && trimmed.includes('-'));
-                    if (isQuote) {
+
+                    // Check if this line contains a quote inline (e.g. some text followed by a quote)
+                    // A quote is identified by quotation marks and a dash following them (e.g., "Quote" - Author)
+                    const quoteStartIdx = trimmed.indexOf('"');
+                    const hasDashAfterQuote = quoteStartIdx !== -1 && (
+                      trimmed.includes('-', quoteStartIdx) || 
+                      trimmed.includes('—', quoteStartIdx) || 
+                      trimmed.includes('–', quoteStartIdx)
+                    );
+                    
+                    if (hasDashAfterQuote) {
+                      const mainText = trimmed.substring(0, quoteStartIdx).trim();
+                      const quoteText = trimmed.substring(quoteStartIdx).trim();
+                      
                       return (
-                        <p key={idx} className="italic text-slate-600 dark:text-slate-400 pl-4 border-l-4 border-orange-500 bg-orange-500/5 py-1.5 pr-2 rounded">
-                          {trimmed}
-                        </p>
+                        <div key={idx} className="space-y-3">
+                          {mainText && <p>{mainText}</p>}
+                          <blockquote className="italic text-slate-600 dark:text-slate-400 pl-4 border-l-4 border-orange-500 bg-orange-500/5 py-2.5 pr-3 rounded my-4 leading-relaxed">
+                            {quoteText}
+                          </blockquote>
+                        </div>
                       );
                     }
+
+                    // Check if it's a standalone quote
+                    const isQuoteOnly = trimmed.startsWith('"') || (
+                      trimmed.includes('"') && (
+                        trimmed.includes('-') || 
+                        trimmed.includes('—') || 
+                        trimmed.includes('–')
+                      )
+                    );
+                    if (isQuoteOnly) {
+                      return (
+                        <blockquote key={idx} className="italic text-slate-600 dark:text-slate-400 pl-4 border-l-4 border-orange-500 bg-orange-500/5 py-2.5 pr-3 rounded my-4 leading-relaxed">
+                          {trimmed}
+                        </blockquote>
+                      );
+                    }
+
                     return <p key={idx}>{trimmed}</p>;
                   })}
                 </div>
