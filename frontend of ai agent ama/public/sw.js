@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ama-chief-of-staff-v2';
+const CACHE_NAME = 'ama-chief-of-staff-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

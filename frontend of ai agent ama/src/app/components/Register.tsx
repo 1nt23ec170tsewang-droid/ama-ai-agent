@@ -146,6 +146,16 @@ export default function Register() {
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl z-0"></div>
       <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl z-0"></div>
 
+      {/* Back to Home */}
+      <div className="absolute top-5 left-5 z-20">
+        <Link to="/landing" className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors font-medium group">
+          <svg className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Home
+        </Link>
+      </div>
+
       <div className="w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 z-10 shadow-2xl transition-all duration-300 hover:border-white/15">
         
         {/* VIEW 1: Verification Mode */}

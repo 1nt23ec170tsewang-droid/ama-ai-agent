@@ -26,11 +26,25 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+function LoadingSpinner() {
+  return (
+    <div className="min-h-screen bg-[#030014] flex flex-col items-center justify-center text-white font-sans relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-900 to-[#030014] z-0"></div>
+      <div className="z-10 flex flex-col items-center space-y-4">
+        <div className="w-16 h-16 border-t-4 border-b-4 border-indigo-500 rounded-full animate-spin"></div>
+        <p className="text-indigo-400 font-medium animate-pulse">Establishing Secure Session...</p>
+      </div>
+    </div>
+  );
+}
+
 function RootRedirect() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
   const params = location.search;
   const hasGmailParam = params.includes('gmail_connected') || params.includes('gmail_error');
+
+  if (loading) return <LoadingSpinner />;
 
   if (hasGmailParam) {
     return <Navigate to={`/dashboard${params}`} replace />;
@@ -38,8 +52,7 @@ function RootRedirect() {
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
-  // Show landing page for unauthenticated users visiting root
-  return <LandingPage />;
+  return <Navigate to="/landing" replace />;
 }
 
 interface ProtectedRouteProps {
@@ -51,27 +64,14 @@ function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
-  // Check if this is a Gmail OAuth callback (backend redirected back with ?gmail_connected=...)
-  // In this case, keep showing loading spinner while Firebase Auth restores from local persistence
   const hasGmailCallback = location.search.includes('gmail_connected') || location.search.includes('gmail_error');
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#030014] flex flex-col items-center justify-center text-white font-sans relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-900 to-[#030014] z-0"></div>
-        <div className="z-10 flex flex-col items-center space-y-4">
-          <div className="w-16 h-16 border-t-4 border-b-4 border-indigo-500 rounded-full animate-spin"></div>
-          <p className="text-indigo-400 font-medium animate-pulse">Establishing Secure Session...</p>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
-  // If this is a Gmail OAuth callback and user is still not available (rare edge case),
-  // redirect to login preserving the gmail_connected param so Email tab auto-connects
   if (!user) {
     if (hasGmailCallback) {
-      // Store the gmail_connected email in localStorage so EmailManager picks it up after login
       const params = new URLSearchParams(location.search);
       const gEmail = params.get('gmail_connected');
       if (gEmail) {
@@ -91,22 +91,21 @@ function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
 const root = createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    {/* --- WRAP EVERYTHING IN TOASTPROVIDER --- */}
     <ToastProvider>
       <AuthProvider>
         <BrowserRouter>
           <Routes>
+            <Route path="/landing" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/dashboard" element={<ProtectedRoute><App /></ProtectedRoute>} />
             <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
             <Route path="/" element={<RootRedirect />} />
-            <Route path="*" element={<RootRedirect />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>
     </ToastProvider>
-    {/* --------------------------------------- */}
   </React.StrictMode>
 );
