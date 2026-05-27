@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -21,6 +22,7 @@ const isConfigValid =
 export let app: any = null;
 export let auth: any = null;
 export let db: any = null;
+export let storage: any = null;
 
 if (isConfigValid) {
   try {
@@ -30,6 +32,7 @@ if (isConfigValid) {
       console.error('Failed to set Firebase Auth session persistence to LOCAL:', err);
     });
     db = getFirestore(app);
+    storage = getStorage(app);
     console.log('✅ Firebase Client successfully initialized.');
   } catch (err) {
     console.error('❌ Firebase initialization failed:', err);

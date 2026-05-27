@@ -1,7 +1,7 @@
 {
-  "name": "Ama - Chief of Staff",
-  "short_name": "Ama",
-  "description": "Your AI Chief of Staff Agent",
+  "name": "Ryve — AI Chief of Staff",
+  "short_name": "Ryve",
+  "description": "Ryve is your AI Chief of Staff. Manage tasks, calendar, email and your day — intelligently.",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#1a1a2e",

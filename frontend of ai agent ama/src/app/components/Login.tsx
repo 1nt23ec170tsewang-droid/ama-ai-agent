@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Mail, Lock, LogIn, Eye, EyeOff, ShieldCheck, ArrowLeft, KeyRound } from 'lucide-react';
+import RyveLogo from './RyveLogo';
 import { motion } from 'motion/react';
 import { API_BASE } from '../utils/config';
 
@@ -295,7 +296,7 @@ export default function Login() {
                       type="email"
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
-                      placeholder="ama@example.com"
+                      placeholder="you@example.com"
                       className="w-full pl-10 pr-4 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm"
                       required
                     />
@@ -335,14 +336,14 @@ export default function Login() {
           /* VIEW 3: Standard Login Mode */
           <div>
             <div className="text-center mb-6">
-              <div className="inline-flex items-center justify-center w-14 h-14 bg-orange-500/10 border border-orange-500/30 rounded-2xl mb-3 text-orange-500 shadow-lg shadow-orange-500/10">
-                <LogIn className="w-7 h-7" />
+              <div className="mb-3">
+                <RyveLogo size={64} variant="dark" />
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-200 to-slate-400">
                 Welcome Back
               </h1>
               <p className="text-slate-400 text-sm mt-1">
-                Sign in to Ama's Chief of Staff Portal
+                Sign in to Ryve
               </p>
             </div>
 
@@ -365,7 +366,7 @@ export default function Login() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ama@example.com"
+                    placeholder="you@example.com"
                     className="w-full pl-10 pr-4 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20 transition-all text-sm"
                     required
                   />
@@ -443,7 +444,7 @@ export default function Login() {
             </div>
             <h2 className="text-2xl font-bold text-center text-white mb-2">Connect Gmail?</h2>
             <p className="text-center text-slate-400 text-sm mb-6 leading-relaxed">
-              Would you like to give Ama access to read and manage your Gmail inbox directly within the app? 
+              Would you like to give Ryve access to read and manage your Gmail inbox directly within the app? 
               <br/><br/>
               <span className="text-xs text-slate-500 font-medium">You will be redirected to Google to grant permission.</span>
             </p>

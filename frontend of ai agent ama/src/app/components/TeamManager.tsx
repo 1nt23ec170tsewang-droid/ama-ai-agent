@@ -91,7 +91,7 @@ export function TeamManager() {
 - Workload: ${member.workload}
 - Productivity score: ${member.metrics.productivity}%
 Be encouraging, specific, and professional.`;
-      const result = await askClaude(prompt, 'You are Ama, an AI Chief of Staff. Write concise, actionable performance notes.');
+      const result = await askClaude(prompt, 'You are Ryve, an AI Chief of Staff. Write concise, actionable performance notes.');
       setAiNote(result);
       showToast('Insight generated!', 'success');
     } catch {

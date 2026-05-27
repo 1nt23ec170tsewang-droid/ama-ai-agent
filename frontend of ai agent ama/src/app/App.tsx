@@ -13,6 +13,7 @@ import { AppProvider } from './context/AppContext';
 import { useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { QuickAskWidget } from './components/QuickAskWidget';
+import RyveLogo from './components/RyveLogo';
 const getInitials = (name: string) => {
   if (!name) return 'U';
   return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
@@ -98,22 +99,27 @@ export default function App() {
                   </svg>
                 </button>
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                  </div>
+                  <RyveLogo size={32} variant="dark" />
                   <div>
-                    <span className="font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ama</span>
-                    <p className="text-xs text-slate-400">Chief of Staff</p>
+                    <span className="font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ryve</span>
+                    <p className="text-xs text-slate-400">AI Chief of Staff</p>
                   </div>
                 </div>
               </div>
               <button
                 onClick={() => { setActiveView('settings'); setSidebarOpen(false); }}
-                className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm hover:from-orange-600 hover:to-orange-700 transition-colors"
+                className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm hover:from-orange-600 hover:to-orange-700 transition-colors overflow-hidden"
               >
-                {authenticatedUser.initials}
+                {user?.photoURL ? (
+                  <img 
+                    src={user.photoURL} 
+                    alt="Avatar" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = `<span class="text-white font-semibold text-sm">${authenticatedUser.initials}</span>`; }}
+                  />
+                ) : (
+                  authenticatedUser.initials
+                )}
               </button>
             </div>
 

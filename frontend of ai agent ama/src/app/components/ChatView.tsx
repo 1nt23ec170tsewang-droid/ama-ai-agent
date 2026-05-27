@@ -191,7 +191,7 @@ function TypingIndicator() {
           transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
         />
       ))}
-      <span className="text-xs ml-1" style={{ color: '#64748b' }}>Ama is thinking…</span>
+      <span className="text-xs ml-1" style={{ color: '#64748b' }}>Ryve is thinking…</span>
     </div>
   );
 }
@@ -439,7 +439,7 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
       ? 'You are casual, warm, friendly, and conversational.'
       : 'You are balanced, warm, direct, and naturally conversational.';
 
-    return `You are Ama, a sophisticated and helpful AI Chief of Staff. ${stylePrompt}
+    return `You are Ryve, a sophisticated and helpful AI Chief of Staff. ${stylePrompt}
 You use structured Markdown (bold, lists, code blocks, tables) to make responses clear and scannable.
 You act like a highly proactive, friction-free executive assistant. Always prioritize action over interrogation.
 
@@ -731,7 +731,7 @@ Always provide exact values. Never use placeholder ranges.`;
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }}>
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <span className="text-sm font-semibold tracking-wide" style={{ color: '#f1f5f9' }}>Ama AI Assistant</span>
+            <span className="text-sm font-semibold tracking-wide" style={{ color: '#f1f5f9' }}>Ryve AI Assistant</span>
           </div>
         </div>
 
@@ -1125,7 +1125,7 @@ function InputBar({
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask Ama anything…"
+          placeholder="Ask Ryve anything…"
           disabled={isLoading && !input}
           className="flex-1 py-2 bg-transparent focus:outline-none text-sm resize-none overflow-hidden"
           style={{
@@ -1170,7 +1170,7 @@ function InputBar({
         )}
       </div>
       <p className="text-center text-xs mt-2" style={{ color: '#475569' }}>
-        Ama can make mistakes. Verify important information.
+        Ryve can make mistakes. Verify important information.
       </p>
     </>
   );

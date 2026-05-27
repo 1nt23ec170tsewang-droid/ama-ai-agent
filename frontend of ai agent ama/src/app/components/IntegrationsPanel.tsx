@@ -31,7 +31,7 @@ export function IntegrationsPanel() {
       <div className="mb-8">
         <h3 className="text-3xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent mb-2">Integrations</h3>
         <p className="text-slate-600">
-          Chief of Staff Ama is connected to {connectedCount} of {integrations.length} integrations
+          Ryve is connected to {connectedCount} of {integrations.length} integrations
         </p>
       </div>
 

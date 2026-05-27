@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Brain, MessageSquare, CheckSquare, Calendar, Mail,
+  MessageSquare, CheckSquare, Calendar, Mail,
   Users, BarChart3, Sun, Zap, Shield, Globe, ArrowRight,
   Star, Menu, X, Sparkles, ChevronRight
 } from 'lucide-react';
+import RyveLogo from './RyveLogo';
 
 const features = [
   {
@@ -29,7 +30,7 @@ const features = [
     color: 'from-purple-500 to-purple-600',
     bg: 'bg-purple-500/10',
     border: 'border-purple-500/20',
-    description: 'Manage your schedule effortlessly. Ama can schedule meetings, set reminders, and optimize your calendar automatically.',
+    description: 'Manage your schedule effortlessly. Ryve can schedule meetings, set reminders, and optimize your calendar automatically.',
   },
   {
     icon: Mail,
@@ -37,7 +38,7 @@ const features = [
     color: 'from-red-500 to-red-600',
     bg: 'bg-red-500/10',
     border: 'border-red-500/20',
-    description: 'Connect your Gmail inbox and let Ama read, summarize, and draft intelligent replies to your emails in seconds.',
+    description: 'Connect your Gmail inbox and let Ryve read, summarize, and draft intelligent replies to your emails in seconds.',
   },
   {
     icon: Users,
@@ -69,7 +70,7 @@ const features = [
     color: 'from-orange-500 to-orange-600',
     bg: 'bg-orange-500/10',
     border: 'border-orange-500/20',
-    description: 'Connect Gmail, Google Calendar, Slack, and WhatsApp. Ama brings all your tools into a single intelligent workspace.',
+    description: 'Connect Gmail, Google Calendar, Slack, and WhatsApp. Ryve brings all your tools into a single intelligent workspace.',
   },
 ];
 
@@ -82,7 +83,7 @@ const stats = [
 
 const testimonials = [
   {
-    quote: "Ama has transformed how I manage my day. The morning briefing alone saves me 30 minutes every morning.",
+    quote: "Ryve has transformed how I manage my day. The morning briefing alone saves me 30 minutes every morning.",
     name: "Sarah K.",
     role: "VP of Operations",
     avatar: "SK"
@@ -124,12 +125,10 @@ function MobileLandingPage() {
       {/* ── Top bar ── */}
       <nav className="relative z-20 flex items-center justify-between px-5 py-4 bg-[#030014]/80 backdrop-blur-xl border-b border-white/5 sticky top-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/30">
-            <Brain className="w-4 h-4 text-white" />
-          </div>
+          <RyveLogo size={32} variant="dark" />
           <div>
-            <span className="text-base font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ama</span>
-            <p className="text-[9px] text-slate-500 leading-none">Chief of Staff Agent</p>
+            <span className="text-base font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ryve</span>
+            <p className="text-[9px] text-slate-500 leading-none">AI Chief of Staff</p>
           </div>
         </div>
         <Link
@@ -151,14 +150,14 @@ function MobileLandingPage() {
         {/* Glow logo */}
         <div className="relative mb-6">
           <div className="absolute inset-0 bg-gradient-to-br from-amber-500/40 to-orange-600/40 rounded-3xl blur-2xl scale-150" />
-          <div className="relative w-24 h-24 bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-orange-500/40">
-            <Brain className="w-12 h-12 text-white" />
+          <div className="relative">
+            <RyveLogo size={96} variant="dark" />
           </div>
         </div>
 
         <h1 className="text-4xl font-extrabold tracking-tight mb-3 leading-tight">
           Meet{' '}
-          <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">Ama</span>
+          <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">Ryve</span>
         </h1>
         <p className="text-[15px] text-slate-300 font-medium mb-2">Your Executive AI Partner</p>
         <p className="text-sm text-slate-500 leading-relaxed max-w-xs mx-auto mb-8">
@@ -235,7 +234,7 @@ function MobileLandingPage() {
           {[
             { step: '01', title: 'Create your account', desc: 'Sign up in seconds — no credit card needed.', icon: Shield },
             { step: '02', title: 'Connect your tools',  desc: 'Link Gmail, Calendar & more with one tap.',  icon: Globe },
-            { step: '03', title: 'Let Ama work for you', desc: 'Chat, delegate tasks, and stay in control.', icon: Zap },
+            { step: '03', title: 'Let Ryve work for you', desc: 'Chat, delegate tasks, and stay in control.', icon: Zap },
           ].map((s, i) => {
             const Icon = s.icon;
             return (
@@ -292,15 +291,15 @@ function MobileLandingPage() {
       {/* ── Bottom CTA ── */}
       <section className="relative z-10 px-5 py-10">
         <div className="text-center bg-gradient-to-br from-amber-500/10 to-orange-600/10 border border-amber-500/15 rounded-3xl p-7">
-          <div className="w-14 h-14 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl shadow-orange-500/30">
-            <Brain className="w-7 h-7 text-white" />
+          <div className="mx-auto mb-4">
+            <RyveLogo size={56} variant="dark" />
           </div>
           <h2 className="text-xl font-bold text-white mb-2">
             Ready to Meet Your{' '}
             <span className="bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">AI Chief of Staff?</span>
           </h2>
           <p className="text-xs text-slate-400 leading-relaxed mb-6">
-            Join thousands of executives who use Ama to reclaim their time and lead smarter — every single day.
+            Join thousands of executives who use Ryve to reclaim their time and lead smarter — every single day.
           </p>
           <div className="space-y-3">
             <Link
@@ -325,13 +324,11 @@ function MobileLandingPage() {
       {/* ── Footer ── */}
       <footer className="relative z-10 border-t border-white/5 py-6 px-5">
         <div className="flex items-center justify-center gap-3 mb-3">
-          <div className="w-7 h-7 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-            <Brain className="w-3.5 h-3.5 text-white" />
-          </div>
-          <span className="font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ama</span>
-          <span className="text-slate-600 text-xs">Chief of Staff Agent</span>
+          <RyveLogo size={28} variant="dark" />
+          <span className="font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ryve</span>
+          <span className="text-slate-600 text-xs">AI Chief of Staff</span>
         </div>
-        <p className="text-[10px] text-slate-600 text-center">&copy; {new Date().getFullYear()} Ama AI. Your data is private and secure.</p>
+        <p className="text-[10px] text-slate-600 text-center">&copy; {new Date().getFullYear()} Ryve AI. Your data is private and secure.</p>
       </footer>
     </div>
   );
@@ -363,12 +360,10 @@ export default function LandingPage() {
             <div className="flex items-center justify-between h-16">
               {/* Logo */}
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/30">
-                  <Brain className="w-5 h-5 text-white" />
-                </div>
+                <RyveLogo size={32} variant="dark" />
                 <div>
-                  <span className="text-lg font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ama</span>
-                  <p className="text-[10px] text-slate-500 leading-none">Chief of Staff Agent</p>
+                  <span className="text-lg font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ryve</span>
+                  <p className="text-[10px] text-slate-500 leading-none">AI Chief of Staff</p>
                 </div>
               </div>
 
@@ -434,13 +429,13 @@ export default function LandingPage() {
 
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6">
               <span className="text-white">Meet </span>
-              <span className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 bg-clip-text text-transparent">Ama</span>
+              <span className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 bg-clip-text text-transparent">Ryve</span>
               <br />
               <span className="text-white text-3xl sm:text-4xl md:text-5xl">Your Executive AI Partner</span>
             </h1>
 
             <p className="text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto mb-10 leading-relaxed">
-              Ama is an intelligent Chief of Staff that manages your tasks, emails, calendar, and team —
+              Ryve is an intelligent AI Chief of Staff that manages your tasks, emails, calendar, and team —
               so you can focus on what truly matters. Available on web and as an installable app.
             </p>
 
@@ -536,7 +531,7 @@ export default function LandingPage() {
               {[
                 { step: '01', title: 'Create your account', desc: 'Sign up in seconds with just your email. No credit card required.', icon: Shield },
                 { step: '02', title: 'Connect your tools',  desc: 'Link Gmail, Google Calendar, and other services with one click.',   icon: Globe },
-                { step: '03', title: 'Let Ama work for you', desc: 'Start chatting with Ama to manage tasks, emails, and your team.',  icon: Zap },
+                { step: '03', title: 'Let Ryve work for you', desc: 'Start chatting with Ryve to manage tasks, emails, and your team.',  icon: Zap },
               ].map((s, i) => {
                 const Icon = s.icon;
                 return (
@@ -563,7 +558,7 @@ export default function LandingPage() {
               Connects with Your{' '}
               <span className="bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Favorite Tools</span>
             </h2>
-            <p className="text-slate-400 mb-12">Ama brings your entire digital workplace into one intelligent interface.</p>
+            <p className="text-slate-400 mb-12">Ryve brings your entire digital workplace into one intelligent interface.</p>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
@@ -619,15 +614,15 @@ export default function LandingPage() {
         {/* ── CTA Section ─────────────────────────────────────────────── */}
         <section className="relative z-10 py-24 px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl mx-auto text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-orange-500/30">
-              <Brain className="w-8 h-8 text-white" />
+            <div className="mx-auto mb-6">
+              <RyveLogo size={56} variant="dark" />
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
               Ready to Meet Your{' '}
               <span className="bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">AI Chief of Staff?</span>
             </h2>
             <p className="text-slate-400 mb-10 leading-relaxed">
-              Join thousands of executives and managers who use Ama to reclaim their time,
+              Join thousands of executives and managers who use Ryve to reclaim their time,
               lead their teams better, and make smarter decisions — every single day.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -654,11 +649,9 @@ export default function LandingPage() {
         <footer className="relative z-10 border-t border-white/5 py-10 px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-                <Brain className="w-4 h-4 text-white" />
-              </div>
-              <span className="font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ama</span>
-              <span className="text-slate-600 text-sm">Chief of Staff Agent</span>
+              <RyveLogo size={28} variant="dark" />
+              <span className="font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ryve</span>
+              <span className="text-slate-600 text-sm">AI Chief of Staff</span>
             </div>
 
             <div className="flex items-center gap-6">
@@ -667,7 +660,7 @@ export default function LandingPage() {
             </div>
 
             <p className="text-xs text-slate-600 text-center">
-              &copy; {new Date().getFullYear()} Ama AI. Your data is private and secure.
+              &copy; {new Date().getFullYear()} Ryve AI. Your data is private and secure.
             </p>
           </div>
         </footer>

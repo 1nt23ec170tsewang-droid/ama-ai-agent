@@ -57,7 +57,7 @@ export function MorningBriefing() {
     const themes = ['resilience', 'innovation', 'teamwork', 'focus', 'courage', 'perseverance', 'vision', 'adaptability', 'execution', 'patience', 'growth mindset', 'boldness'];
     const randomTheme = themes[Math.floor(Math.random() * themes.length)];
 
-    const prompt = `You are Ama, an AI Chief of Staff. Generate a concise, executive-level morning briefing for ${displayName || 'the user'}.
+    const prompt = `You are Ryve, an AI Chief of Staff. Generate a concise, executive-level morning briefing for ${displayName || 'the user'}.
 Current date/time: ${now} (Random seed: ${Math.random()})
 
 TASKS (${pendingTasks.length} pending, ${overdueTasks.length} overdue):
@@ -179,7 +179,7 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
             {generating && (
               <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 py-4">
                 <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
-                <span className="text-sm">Ama is preparing your briefing…</span>
+                <span className="text-sm">Ryve is preparing your briefing…</span>
               </div>
             )}
 

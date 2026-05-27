@@ -72,7 +72,7 @@ export function WeeklyReport() {
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 text-white p-8 rounded-xl shadow-2xl">
-        <h2 className="text-3xl font-bold mb-2">Weekly Wrap by Ama</h2>
+        <h2 className="text-3xl font-bold mb-2">Weekly Wrap by Ryve</h2>
         <p className="text-amber-100 mb-4">April 24 - April 30, 2026</p>
         <div className="grid grid-cols-4 gap-4">
           <div className="bg-white/10 backdrop-blur-sm p-4 rounded-lg">

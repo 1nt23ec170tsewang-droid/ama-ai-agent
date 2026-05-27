@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -8,7 +8,7 @@ import {
   updateProfile,
   onIdTokenChanged
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
 import { API_BASE, setActiveToken } from '../utils/config';
 import { useToast } from './ToastContext';
@@ -19,6 +19,7 @@ interface User {
   name: string;
   company?: string;
   role?: string;
+  photoURL?: string;
 }
 
 interface AuthContextType {
@@ -32,6 +33,7 @@ interface AuthContextType {
   resendVerification: (email: string) => Promise<{ success: boolean; error?: string }>;
   forgotPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (password: string, token: string, email: string) => Promise<{ success: boolean; error?: string }>;
+  updatePhotoURL: (url: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -146,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             let name = firebaseUser.displayName || firebaseUser.email || 'User';
             let company = '';
             let role = 'user';
+            let photoURL = '';
 
             try {
               const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
@@ -154,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (data.name) name = data.name;
                 if (data.company) company = data.company;
                 if (data.role) role = data.role;
+                if (data.photoURL) photoURL = data.photoURL;
               } else {
                 await setDoc(doc(db, 'users', firebaseUser.uid), {
                   uid: firebaseUser.uid,
@@ -171,7 +175,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               email: firebaseUser.email || '',
               name,
               company,
-              role
+              role,
+              photoURL
             };
             setUser(userData);
             // Cache for PWA offline recovery
@@ -325,6 +330,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updatePhotoURL = useCallback(async (url: string) => {
+    if (user?.id && db) {
+      try {
+        await updateDoc(doc(db, 'users', user.id), { photoURL: url });
+      } catch (err) {
+        console.error('Failed to update photoURL in Firestore:', err);
+      }
+    }
+    setUser(prev => prev ? { ...prev, photoURL: url } : prev);
+    // Update PWA cache
+    try {
+      const cached = localStorage.getItem('ama_user_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.photoURL = url;
+        localStorage.setItem('ama_user_cache', JSON.stringify(parsed));
+      }
+    } catch {}
+  }, [user?.id]);
+
   const verifyEmail = async (email: string, code: string) => {
     if (auth) {
       return { success: true };
@@ -434,7 +459,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       verifyEmail,
       resendVerification,
       forgotPassword,
-      resetPassword
+      resetPassword,
+      updatePhotoURL
     }}>
       {children}
     </AuthContext.Provider>

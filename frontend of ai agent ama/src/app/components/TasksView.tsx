@@ -153,14 +153,14 @@ export function TasksView() {
     }
     setAiLoading(true);
     setAiBreakdown(null);
-    showToast('Ama is breaking down your tasks…', 'loading');
+    showToast('Ryve is breaking down your tasks…', 'loading');
     try {
       const list = activeTasks.slice(0, 6).map(t =>
         `- [${t.priority}] ${t.title}${t.dueDate ? ` (due: ${t.dueDate})` : ''}`
       ).join('\n');
       const result = await askClaude(
         `Break down these tasks into actionable subtasks (2-4 per task):\n${list}\n\nFor each task list 2-4 specific subtasks with checkboxes. Be concise and practical.`,
-        'You are Ama, an executive AI Chief of Staff. Respond with clean Markdown using - [ ] checkboxes.'
+        'You are Ryve, an executive AI Chief of Staff. Respond with clean Markdown using - [ ] checkboxes.'
       );
       setAiBreakdown(result);
       showToast('Breakdown ready!', 'success');
@@ -179,14 +179,14 @@ export function TasksView() {
     }
     setAiLoading(true);
     setAiBreakdown(null);
-    showToast('Ama is analyzing priorities…', 'loading');
+    showToast('Ryve is analyzing priorities…', 'loading');
     try {
       const list = tasks.slice(0, 10).map(t =>
         `- [${t.priority}|${t.status}] ${t.title}${t.dueDate ? ` (due: ${t.dueDate})` : ''}`
       ).join('\n');
       const result = await askClaude(
         `Analyze these tasks and provide a prioritized top-5 action list with brief reasoning:\n${list}`,
-        'You are Ama, an executive AI Chief of Staff. Be direct and tactical. Use numbered list.'
+        'You are Ryve, an executive AI Chief of Staff. Be direct and tactical. Use numbered list.'
       );
       setAiBreakdown(result);
       showToast('Prioritization complete!', 'success');
@@ -299,7 +299,7 @@ export function TasksView() {
               className="flex items-center gap-1.5 px-3 py-2 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
               {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
-              Ama Breakdown
+              AI Breakdown
             </button>
             <button
               id="ama-prioritize-btn"
@@ -308,7 +308,7 @@ export function TasksView() {
               className="flex items-center gap-1.5 px-3 py-2 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
               {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              Ama Prioritize
+              AI Prioritize
             </button>
             <button
               id="add-task-btn"

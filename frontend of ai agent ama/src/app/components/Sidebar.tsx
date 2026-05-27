@@ -1,4 +1,5 @@
-import { MessageSquare, CheckSquare, Calendar, Settings, Brain, Mail, Sun, BarChart3, Users, Trash2 } from 'lucide-react';
+import { MessageSquare, CheckSquare, Calendar, Settings, Mail, Sun, BarChart3, Users, Trash2 } from 'lucide-react';
+import RyveLogo from './RyveLogo';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useSettings } from '../context/SettingsContext';
@@ -128,12 +129,10 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       {/* Logo */}
       <div className="p-6 border-b border-slate-700 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
-            <Brain className="w-6 h-6" />
-          </div>
+          <RyveLogo size={40} variant="dark" />
           <div>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ama</h1>
-            <p className="text-xs text-slate-400">Chief of Staff Agent</p>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">Ryve</h1>
+            <p className="text-xs text-slate-400">AI Chief of Staff</p>
           </div>
         </div>
       </div>
@@ -249,10 +248,18 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-slate-700/50 transition-colors"
         >
           <div 
-            className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 overflow-hidden bg-cover bg-center"
-            style={profile?.avatar ? { backgroundImage: `url(${profile.avatar})` } : {}}
+            className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 overflow-hidden"
           >
-            {!profile?.avatar && initials}
+            {(user?.photoURL || profile?.avatar) ? (
+              <img 
+                src={user?.photoURL || profile?.avatar} 
+                alt="Avatar" 
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling && ((e.target as HTMLImageElement).parentElement!.innerHTML = `<span class="text-white font-semibold text-sm">${initials}</span>`); }}
+              />
+            ) : (
+              <span>{initials}</span>
+            )}
           </div>
           <div className="flex-1 text-left min-w-0">
             <p className="text-sm font-medium text-white truncate">{name}</p>

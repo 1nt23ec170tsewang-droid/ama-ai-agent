@@ -258,7 +258,7 @@ export function EmailManager() {
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Connect Gmail</h2>
           <p className="text-slate-500 text-sm mb-6">
-            Connect your Gmail account to view your real inbox, read emails, and send AI-powered replies — all inside Ama.
+            Connect your Gmail account to view your real inbox, read emails, and send AI-powered replies — all inside Ryve.
           </p>
           <button
             id="connect-gmail-btn"
@@ -503,7 +503,7 @@ export function EmailManager() {
                   {draftLoading && !draftReply ? (
                     <div className="flex items-center gap-2 text-slate-500 text-sm py-4">
                       <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                      Ama is writing your reply…
+                      Ryve is writing your reply…
                     </div>
                   ) : (
                     <textarea

@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, Shield, Palette, Globe, Zap, Camera,
-  Mail, Phone, MapPin, Building, Edit2, Save, X, Sun, Moon, Monitor, LogOut
+  Mail, Phone, MapPin, Building, Edit2, Save, X, Sun, Moon, Monitor, LogOut, Check
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE } from '../utils/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { storage, db } from '../utils/firebase';
 
 // ── Toggle switch component ─────────────────────────────────────────────────
 function Toggle({
@@ -81,22 +84,39 @@ export function SettingsView() {
   } = useSettings();
 
   const { tasks, events } = useApp();
-  const { logout, token } = useAuth();
+  const { logout, token, user: authUser, updatePhotoURL } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('/', { replace: true });
   };
 
   const [gmailEmail, setGmailEmail] = useState<string | null>(() => localStorage.getItem('ama_gmail_email'));
   const [calendarConnected, setCalendarConnected] = useState<boolean>(() => localStorage.getItem('ama_calendar_connected') === 'true');
   const [slackConnected, setSlackConnected] = useState<boolean>(() => localStorage.getItem('ama_slack_connected') === 'true');
+  const [whatsappConnected, setWhatsappConnected] = useState<boolean>(false);
+  const [whatsappLoading, setWhatsappLoading] = useState<boolean>(false);
+  const [avatarUploading, setAvatarUploading] = useState<boolean>(false);
 
+  // Load WhatsApp connection state from Firestore
   useEffect(() => {
-    // Pre-warm backend cold start on mount
-    fetch(`${API_BASE}/health`).catch(() => {});
-  }, []);
+    const loadWhatsappState = async () => {
+      if (authUser?.id && db) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', authUser.id));
+          if (userDoc.exists()) {
+            setWhatsappConnected(!!userDoc.data().whatsappConnected);
+          }
+        } catch (err) {
+          console.warn('Failed to load WhatsApp state:', err);
+        }
+      }
+    };
+    loadWhatsappState();
+  }, [authUser?.id]);
+
+
 
   const handleConnectGmail = () => {
     console.log('Initiating Gmail OAuth in Settings via direct backend redirect.');
@@ -158,15 +178,39 @@ export function SettingsView() {
       name: 'WhatsApp',
       icon: '📞',
       bg: 'bg-green-500',
-      connected: !!profile.phone,
-      subtitle: profile.phone ? `Connected to ${profile.phone}` : 'Not connected',
-      onConnect: () => {
-        // showToast('Please add your Phone number in the Profile section above to connect WhatsApp.', 'info');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+      connected: whatsappConnected,
+      subtitle: whatsappConnected 
+        ? `Connected${profile.phone ? ` to ${profile.phone}` : ''}` 
+        : 'Not connected',
+      onConnect: async () => {
+        if (!profile.phone || profile.phone.trim().length < 5) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+        setWhatsappLoading(true);
+        try {
+          if (authUser?.id && db) {
+            await updateDoc(doc(db, 'users', authUser.id), { whatsappConnected: true });
+          }
+          setWhatsappConnected(true);
+        } catch (err) {
+          console.error('Failed to connect WhatsApp:', err);
+        } finally {
+          setWhatsappLoading(false);
+        }
       },
-      onDisconnect: () => {
-        updateProfile({ ...profile, phone: '' });
-        // showToast('WhatsApp disconnected (Phone removed)', 'info');
+      onDisconnect: async () => {
+        setWhatsappLoading(true);
+        try {
+          if (authUser?.id && db) {
+            await updateDoc(doc(db, 'users', authUser.id), { whatsappConnected: false });
+          }
+          setWhatsappConnected(false);
+        } catch (err) {
+          console.error('Failed to disconnect WhatsApp:', err);
+        } finally {
+          setWhatsappLoading(false);
+        }
       },
     },
   ];
@@ -196,43 +240,102 @@ export function SettingsView() {
     setIsEditingProfile(false);
   };
 
-  const handleImageUpload = (type: 'avatar' | 'banner', e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (type: 'avatar' | 'banner', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = type === 'avatar' ? 200 : 800;
+    if (!file) return;
+
+    // For avatar: try Firebase Storage upload first
+    if (type === 'avatar' && authUser?.id && storage) {
+      setAvatarUploading(true);
+      try {
+        const storageRef = ref(storage, `users/${authUser.id}/profile/avatar.jpg`);
         
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
+        // Resize before upload
+        const resizedBlob = await new Promise<Blob>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxDim = 400;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.85);
+            }
+          };
+          img.src = URL.createObjectURL(file);
+        });
+
+        await uploadBytes(storageRef, resizedBlob, { contentType: 'image/jpeg' });
+        const downloadURL = await getDownloadURL(storageRef);
+
+        // Save to Firestore and update context
+        await updatePhotoURL(downloadURL);
         
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
-          if (isEditingProfile) {
-            setDraft(prev => ({ ...prev, [type]: compressedBase64 }));
-            // showToast(`${type === 'avatar' ? 'Profile picture' : 'Banner'} preview updated!`, 'success');
-          } else {
-            updateProfile({ [type]: compressedBase64 });
-            // showToast(`${type === 'avatar' ? 'Profile picture' : 'Banner'} updated!`, 'success');
-          }
+        // Also update settings profile avatar for consistency
+        if (isEditingProfile) {
+          setDraft(prev => ({ ...prev, avatar: downloadURL }));
+        } else {
+          updateProfile({ avatar: downloadURL });
         }
-      };
-      img.src = URL.createObjectURL(file);
+      } catch (err) {
+        console.error('Firebase Storage upload failed, falling back to base64:', err);
+        // Fallback to base64 if storage fails
+        handleBase64ImageUpload(type, file);
+      } finally {
+        setAvatarUploading(false);
+      }
+      return;
     }
+
+    // Fallback: base64 encode for banner or when storage unavailable
+    handleBase64ImageUpload(type, file);
+  };
+
+  const handleBase64ImageUpload = (type: 'avatar' | 'banner', file: File) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      const maxDim = type === 'avatar' ? 200 : 800;
+      
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        if (isEditingProfile) {
+          setDraft(prev => ({ ...prev, [type]: compressedBase64 }));
+        } else {
+          updateProfile({ [type]: compressedBase64 });
+        }
+      }
+    };
+    img.src = URL.createObjectURL(file);
   };
 
   const handleNotificationToggle = (key: keyof typeof notifications, val: boolean) => {
@@ -241,7 +344,7 @@ export function SettingsView() {
         Notification.requestPermission().then(perm => {
           if (perm === 'granted') {
             updateNotifications({ pushNotifications: true });
-            new Notification('Push notifications enabled!', { body: 'Ama will notify you of important events.' });
+            new Notification('Push notifications enabled!', { body: 'Ryve will notify you of important events.' });
           } else {
             // showToast('Push notification permission denied', 'error');
             updateNotifications({ pushNotifications: false });
@@ -281,9 +384,21 @@ export function SettingsView() {
               <div className="flex flex-col md:flex-row gap-6 mb-6">
                 {/* Avatar */}
                 <div className="relative -mt-20 md:-mt-16">
-                  <div className="w-28 h-28 md:w-32 md:h-32 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl border-4 border-white shadow-lg flex items-center justify-center overflow-hidden bg-cover bg-center"
-                       style={(isEditingProfile ? draft.avatar : profile.avatar) ? { backgroundImage: `url(${isEditingProfile ? draft.avatar : profile.avatar})` } : {}}>
-                    {!(isEditingProfile ? draft.avatar : profile.avatar) && <span className="text-4xl md:text-5xl text-white font-bold">{initials}</span>}
+                  <div className="w-28 h-28 md:w-32 md:h-32 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl border-4 border-white shadow-lg flex items-center justify-center overflow-hidden">
+                    {(isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)) ? (
+                      <img 
+                        src={isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)} 
+                        alt="Avatar"
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : null}
+                    {!(isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)) && <span className="text-4xl md:text-5xl text-white font-bold">{initials}</span>}
+                    {avatarUploading && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl">
+                        <div className="w-8 h-8 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -399,7 +514,7 @@ export function SettingsView() {
                           value={draft.bio}
                           onChange={e => setDraft({ ...draft, bio: e.target.value })}
                           rows={3}
-                          placeholder="Tell Ama a bit about yourself, your goals, and working style…"
+                          placeholder="Tell Ryve a bit about yourself, your goals, and working style…"
                           className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm resize-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
                         />
                       </div>
@@ -610,13 +725,23 @@ export function SettingsView() {
                   </div>
                   <button
                     onClick={connected ? onDisconnect : onConnect}
-                    className={`px-3 md:px-4 py-2 text-xs md:text-sm rounded-lg transition-colors ${
+                    disabled={name === 'WhatsApp' && whatsappLoading}
+                    className={`px-3 md:px-4 py-2 text-xs md:text-sm rounded-lg transition-colors ${name === 'WhatsApp' && whatsappLoading ? 'opacity-50 cursor-not-allowed' : ''} ${
                       connected
                         ? 'bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-slate-700 dark:text-slate-200'
                         : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700'
                     }`}
                   >
-                    {connected ? 'Disconnect' : 'Connect'}
+                    {name === 'WhatsApp' && connected ? (
+                      <span className="flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-green-500" />
+                        Connected
+                      </span>
+                    ) : name === 'WhatsApp' && !connected && (!profile.phone || profile.phone.trim().length < 5) ? (
+                      'Add Phone First'
+                    ) : (
+                      connected ? 'Disconnect' : (name === 'WhatsApp' ? 'Connect WhatsApp' : 'Connect')
+                    )}
                   </button>
                 </div>
               ))}

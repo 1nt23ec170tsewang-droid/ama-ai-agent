@@ -35,7 +35,7 @@ export function QuickAskWidget() {
       ? 'If the user mentions an action item, automatically propose a specific time or deadline for it in your response.'
       : 'Do not schedule tasks or deadlines unless the user explicitly asks for them.';
 
-    return `You are Ama, an expert AI Chief of Staff. ${stylePrompt}
+    return `You are Ryve, an expert AI Chief of Staff. ${stylePrompt}
 ${proactivePrompt}
 ${autoSchedulePrompt}
 
@@ -92,7 +92,7 @@ In addition to managing tasks, you are fully capable of answering general or out
     if (!userText.trim()) return;
 
     setIsLoading(true);
-    const toastId = showToast('Ama is processing voice command...', 'loading');
+    const toastId = showToast('Ryve is processing voice command...', 'loading');
 
     try {
       const token = localStorage.getItem('authToken');

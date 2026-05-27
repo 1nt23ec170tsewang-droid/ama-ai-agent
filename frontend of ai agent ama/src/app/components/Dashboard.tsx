@@ -42,7 +42,7 @@ export function Dashboard() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h2 className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent mb-2">Good morning!</h2>
-          <p className="text-slate-600">Ama has prepared your daily briefing</p>
+          <p className="text-slate-600">Ryve has prepared your daily briefing</p>
         </div>
 
         <div className="grid grid-cols-4 gap-6 mb-8">

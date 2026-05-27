@@ -90,7 +90,7 @@ export function ProactiveAlerts() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-3xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">Proactive Alerts</h3>
-          <p className="text-slate-600">Chief of Staff Ama is monitoring and flagging important items for you</p>
+          <p className="text-slate-600">Ryve is monitoring and flagging important items for you</p>
         </div>
         <button className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">
           Mark All Read
