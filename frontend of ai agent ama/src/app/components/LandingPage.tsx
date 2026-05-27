@@ -24,7 +24,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#0d0d14] text-white font-sans flex flex-col selection:bg-[#FF6B00]/30 selection:text-white">
       {/* Self-contained premium micro-animations style block */}
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes fadeUp {
           from {
             opacity: 0;
@@ -42,7 +42,7 @@ export default function LandingPage() {
         .delay-1 { animation-delay: 100ms; }
         .delay-2 { animation-delay: 200ms; }
         .delay-3 { animation-delay: 300ms; }
-      `}</style>
+      ` }} />
 
       {/* ── Navbar ─────────────────────────────────────────────────── */}
       <nav className="z-50 max-w-6xl mx-auto w-full px-6 py-6 flex items-center justify-between sticky top-0 bg-[#0d0d14]/90 backdrop-blur-md border-b border-white/5">

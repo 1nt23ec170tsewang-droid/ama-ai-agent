@@ -29,8 +29,14 @@ export default function Login() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
-  const { login, verifyEmail, resendVerification, forgotPassword } = useAuth();
+  const { user, login, verifyEmail, resendVerification, forgotPassword } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     // Pre-warm backend cold start on mount

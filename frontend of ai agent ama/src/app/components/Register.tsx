@@ -27,7 +27,7 @@ export default function Register() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [verificationError, setVerificationError] = useState('');
 
-  const { register, verifyEmail, resendVerification } = useAuth();
+  const { user, register, verifyEmail, resendVerification } = useAuth();
   const navigate = useNavigate();
 
   // Password criteria checks
@@ -38,6 +38,12 @@ export default function Register() {
   const passwordsMatch = password === confirmPassword && password !== '';
   const isPasswordValid = hasMinLength && hasUppercase && hasNumber && hasSpecialChar;
   const isSubmitDisabled = !isPasswordValid || !passwordsMatch || loading || !name || !email;
+
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     // Pre-warm backend cold start on mount
