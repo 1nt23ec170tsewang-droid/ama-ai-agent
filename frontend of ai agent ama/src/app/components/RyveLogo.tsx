@@ -1,3 +1,5 @@
+import React from 'react';
+
 const RyveLogo = ({ size = 40, variant = "dark" }: { size?: number; variant?: "dark" | "light" }) => {
   const bg = variant === "light" ? "#f0f0ea" : "#0d0d14";
   const coreFill = variant === "light" ? "#f0f0ea" : "#0d0d14";

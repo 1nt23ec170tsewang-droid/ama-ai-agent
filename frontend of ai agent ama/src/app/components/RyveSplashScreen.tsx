@@ -1,3 +1,4 @@
+import React from 'react';
 import RyveLogo from './RyveLogo';
 
 export default function RyveSplashScreen() {
