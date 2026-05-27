@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { TasksView } from './components/TasksView';
@@ -22,14 +22,20 @@ const getInitials = (name: string) => {
 export default function App() {
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [activeView, setActiveView] = useState('briefing');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Auto-switch to email view when Gmail OAuth redirects back with ?gmail_connected
+  // Auto-switch based on tab query param or Gmail OAuth redirects
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (params.get('gmail_connected') || params.get('gmail_error')) {
+    const tab = params.get('tab');
+    if (tab) {
+      setActiveView(tab);
+    } else if (params.get('gmail_connected') || params.get('gmail_error')) {
       setActiveView('email');
+    } else {
+      setActiveView('briefing');
     }
   }, [location.search]);
 
@@ -40,7 +46,9 @@ export default function App() {
   };
 
   const handleViewChange = (view: string) => {
-    setActiveView(view);
+    const params = new URLSearchParams(location.search);
+    params.set('tab', view);
+    navigate(`/dashboard?${params.toString()}`);
     setSidebarOpen(false);
   };
 
@@ -107,7 +115,7 @@ export default function App() {
                 </div>
               </div>
               <button
-                onClick={() => { setActiveView('settings'); setSidebarOpen(false); }}
+                onClick={() => handleViewChange('settings')}
                 className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm hover:from-orange-600 hover:to-orange-700 transition-colors overflow-hidden"
               >
                 {user?.photoURL ? (

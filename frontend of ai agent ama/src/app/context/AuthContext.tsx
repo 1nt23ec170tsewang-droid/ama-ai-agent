@@ -101,9 +101,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(savedToken);
           return savedToken;
         }
+
+        // Even if validation/refresh fails (e.g., session expired or backend down),
+        // we KEEP the cached PWA user session so the user remains logged in permanently
+        // until they explicitly click the Logout button!
+        const storedUser = localStorage.getItem('ama_user_cache');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            setUser(parsed);
+            setToken(savedToken);
+            return savedToken;
+          } catch {}
+        }
       }
       
-      // No valid token - clear state
+      // No token at all - clear state
       setToken(null);
       setUser(null);
       return null;
@@ -305,8 +318,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    // Clear PWA user cache on logout
-    try { localStorage.removeItem('ama_user_cache'); } catch {}
+    // Explicit sign out: clear all localStorage and reset react auth state
+    try {
+      localStorage.clear();
+    } catch {}
     if (auth) {
       try {
         await signOut(auth);
@@ -323,11 +338,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       } catch (err) {
         console.error('Logout request failed:', err);
-      } finally {
-        setUser(null);
-        setToken(null);
       }
     }
+    setUser(null);
+    setToken(null);
   };
 
   const updatePhotoURL = useCallback(async (url: string) => {
