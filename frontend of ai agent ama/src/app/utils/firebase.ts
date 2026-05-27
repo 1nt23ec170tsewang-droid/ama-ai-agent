@@ -1,9 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { 
-  browserLocalPersistence, 
-  indexedDBLocalPersistence, 
-  initializeAuth 
-} from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -31,12 +27,10 @@ export let storage: any = null;
 if (isConfigValid) {
   try {
     app = initializeApp(firebaseConfig);
-    auth = initializeAuth(app, {
-      persistence: [indexedDBLocalPersistence, browserLocalPersistence]
-    });
+    auth = getAuth(app);
     db = getFirestore(app);
     storage = getStorage(app);
-    console.log('✅ Firebase Client successfully initialized with IndexedDB/Local persistence.');
+    console.log('✅ Firebase Client successfully initialized with standard getAuth.');
   } catch (err) {
     console.error('❌ Firebase initialization failed:', err);
   }
