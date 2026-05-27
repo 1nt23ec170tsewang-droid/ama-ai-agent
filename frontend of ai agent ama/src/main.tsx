@@ -12,6 +12,7 @@ import LandingPage from "./app/components/LandingPage";
 import RyveLogo from "./app/components/RyveLogo";
 import { AuthProvider, useAuth } from "./app/context/AuthContext";
 import { ToastProvider } from "./app/context/ToastContext";
+import RyveSplashScreen from "./app/components/RyveSplashScreen";
 
 
 const rootElement = document.getElementById("root");
@@ -28,17 +29,7 @@ if ('serviceWorker' in navigator) {
 }
 
 function LoadingSpinner() {
-  return (
-    <div className="min-h-screen bg-[#030014] flex flex-col items-center justify-center text-white font-sans relative overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-900 to-[#030014] z-0"></div>
-      <div className="z-10 flex flex-col items-center space-y-4">
-        <div className="animate-pulse">
-          <RyveLogo size={64} variant="dark" />
-        </div>
-        <p className="text-orange-400 font-medium animate-pulse">Establishing Secure Session...</p>
-      </div>
-    </div>
-  );
+  return <RyveSplashScreen />;
 }
 
 function RootRedirect() {
@@ -47,7 +38,7 @@ function RootRedirect() {
   const params = location.search;
   const hasGmailParam = params.includes('gmail_connected') || params.includes('gmail_error');
 
-  if (loading) return <LoadingSpinner />;
+  if (loading || user === undefined) return <RyveSplashScreen />;
 
   if (hasGmailParam) {
     return <Navigate to={`/dashboard${params}`} replace />;
@@ -71,11 +62,11 @@ function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
 
   const hasGmailCallback = location.search.includes('gmail_connected') || location.search.includes('gmail_error');
 
-  if (loading) {
-    return <LoadingSpinner />;
+  if (loading || user === undefined) {
+    return <RyveSplashScreen />;
   }
 
-  if (!user) {
+  if (user === null) {
     if (hasGmailCallback) {
       const params = new URLSearchParams(location.search);
       const gEmail = params.get('gmail_connected');

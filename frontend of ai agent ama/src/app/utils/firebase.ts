@@ -1,5 +1,9 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { 
+  browserLocalPersistence, 
+  indexedDBLocalPersistence, 
+  initializeAuth 
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -27,13 +31,12 @@ export let storage: any = null;
 if (isConfigValid) {
   try {
     app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    setPersistence(auth, browserLocalPersistence).catch((err) => {
-      console.error('Failed to set Firebase Auth session persistence to LOCAL:', err);
+    auth = initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence]
     });
     db = getFirestore(app);
     storage = getStorage(app);
-    console.log('✅ Firebase Client successfully initialized.');
+    console.log('✅ Firebase Client successfully initialized with IndexedDB/Local persistence.');
   } catch (err) {
     console.error('❌ Firebase initialization failed:', err);
   }

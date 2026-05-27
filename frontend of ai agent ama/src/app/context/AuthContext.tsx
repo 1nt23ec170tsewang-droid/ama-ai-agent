@@ -23,7 +23,7 @@ interface User {
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: User | null | undefined;
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; unverified?: boolean }>;
@@ -39,7 +39,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null | undefined>(undefined);
   const [tokenState, setTokenState] = useState<string | null>(() => localStorage.getItem('authToken'));
   const [loading, setLoading] = useState<boolean>(true);
   const { showToast } = useToast();
