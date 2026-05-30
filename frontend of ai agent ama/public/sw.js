@@ -1,4 +1,4 @@
-const CACHE = 'ryve-v1';
+const CACHE = 'ryve-v2'; // Incremented cache version
 const ASSETS = [
   '/',
   '/index.html',
@@ -12,8 +12,25 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
+  self.skipWaiting(); // Force active immediately
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(ASSETS))
+  );
+});
+
+self.addEventListener('activate', e => {
+  // Clear old cache versions to force loading new asset hashes
+  e.waitUntil(
+    caches.keys().then(keys => {
+      return Promise.all(
+        keys.map(key => {
+          if (key !== CACHE) {
+            console.log('🧹 Clearing old service worker cache:', key);
+            return caches.delete(key);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
   );
 });
 

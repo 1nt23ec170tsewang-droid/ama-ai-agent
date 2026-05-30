@@ -83,7 +83,10 @@ if (!rootElement) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('PWA Service Worker registered successfully:', reg.scope))
+      .then(reg => {
+        console.log('PWA Service Worker registered successfully:', reg.scope);
+        reg.update(); // Force checking for updates immediately on load
+      })
       .catch(err => console.error('PWA Service Worker registration failed:', err));
   });
 }
