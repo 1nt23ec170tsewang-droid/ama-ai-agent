@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, ReactNode, useEffect, ReactElement } from 'react';
-import { CheckCircle, XCircle, Info, Loader2, X } from 'lucide-react';
+import { CheckCircle, XCircle, Info, Loader2, X, AlertTriangle } from 'lucide-react';
 
-type ToastType = 'success' | 'error' | 'info' | 'loading';
+type ToastType = 'success' | 'error' | 'info' | 'warning' | 'loading';
 
 interface Toast {
   id: string;
@@ -43,6 +43,12 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
       border: 'border-blue-500/50',
       text: 'text-blue-100',
       icon: <Info className="w-4 h-4 text-blue-400 flex-shrink-0" />,
+    },
+    warning: {
+      bg: 'bg-amber-900/95',
+      border: 'border-amber-500/50',
+      text: 'text-amber-100',
+      icon: <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />,
     },
     loading: {
       bg: 'bg-amber-900/95',

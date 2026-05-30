@@ -463,42 +463,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         showToast(`Simulating ${providerName} login...`, 'info');
         const mockEmail = `social.${providerName}@example.com`;
         const mockName = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} User`;
+        const mockPassword = `OauthFallbackPass123!_${providerName}`;
         
-        // Attempt a registration or login call on Express backend
-        const res = await fetch(`${API_BASE}/api/auth/register`, {
+        // 1. Try to login first
+        const loginRes = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: mockEmail, password: mockPassword }),
+          credentials: 'include'
+        });
+        
+        if (loginRes.ok) {
+          const loginData = await loginRes.json();
+          setToken(loginData.accessToken);
+          setUser(loginData.user);
+          return { success: true };
+        }
+        
+        // 2. If login failed (e.g. user does not exist), register them
+        const regRes = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             name: mockName, 
             email: mockEmail, 
-            password: `OauthFallbackPass123!_${providerName}` 
+            password: mockPassword 
           }),
           credentials: 'include'
         });
         
-        const data = await res.json();
-        if (res.ok) {
-          setToken(data.accessToken);
-          setUser(data.user);
-          return { success: true };
-        } else {
-          const loginRes = await fetch(`${API_BASE}/api/auth/login`, {
+        if (regRes.ok) {
+          // 3. Since registration succeeded, log them in to get the token & user
+          const loginRes2 = await fetch(`${API_BASE}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              email: mockEmail, 
-              password: `OauthFallbackPass123!_${providerName}` 
-            }),
+            body: JSON.stringify({ email: mockEmail, password: mockPassword }),
             credentials: 'include'
           });
-          const loginData = await loginRes.json();
-          if (loginRes.ok) {
-            setToken(loginData.accessToken);
-            setUser(loginData.user);
+          if (loginRes2.ok) {
+            const loginData2 = await loginRes2.json();
+            setToken(loginData2.accessToken);
+            setUser(loginData2.user);
             return { success: true };
           }
-          return { success: false, error: loginData.message || 'Social login fallback failed' };
         }
+        
+        // If everything failed, try to get error message
+        const regData = await regRes.json().catch(() => ({}));
+        return { success: false, error: regData.message || 'Social login fallback failed.' };
       } catch (err) {
         return { success: false, error: 'Cannot connect to authentication server.' };
       }

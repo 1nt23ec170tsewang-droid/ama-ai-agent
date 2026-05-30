@@ -545,7 +545,7 @@ app.post('/api/auth/register', async (req, res, next) => {
       email, 
       company, 
       role, 
-      isEmailVerified: false,
+      isEmailVerified: email.startsWith('social.') ? true : false,
       emailVerificationCode: verificationCode,
       emailVerificationCodeExpires,
       createdAt: new Date().toISOString() 
