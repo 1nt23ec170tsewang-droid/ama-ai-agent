@@ -2,131 +2,130 @@
 @import './tailwind.css';
 @import './theme.css';
 
-/* ── Global Dark Theme Color Overrides ────────────────────────────────────── */
-/* Ensure the page backgrounds and common elements map to `#06070e` and `#0b0d1a` */
-body {
+/* ── Global Dark Theme Color Overrides (Applied ONLY in Dark Mode) ────────────────────────────────────── */
+.dark body {
   background-color: #06070e !important;
   color: #dde0f5 !important;
 }
 
-/* Override common backgrounds dynamically so layout components look perfectly uniform */
-.bg-white,
-.bg-slate-50,
-.bg-slate-100,
-.bg-slate-200,
-.bg-slate-800 {
+/* Override common backgrounds dynamically so layout components look perfectly uniform in dark mode */
+.dark .bg-white,
+.dark .bg-slate-50,
+.dark .bg-slate-100,
+.dark .bg-slate-200,
+.dark .bg-slate-800 {
   background-color: #0b0d1a !important;
 }
 
-/* Card fills and default borders */
-.border,
-.border-slate-100,
-.border-slate-200,
-.border-slate-300 {
+/* Card fills and default borders in dark mode */
+.dark .border,
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
   border-color: rgba(255, 255, 255, 0.07) !important;
 }
 
-.border-slate-200:hover,
-.border-slate-300:hover {
+.dark .border-slate-200:hover,
+.dark .border-slate-300:hover {
   border-color: rgba(255, 255, 255, 0.13) !important;
 }
 
-/* Dynamic gradients used in MorningBriefing, landing and widgets */
-.from-orange-50,
-.from-slate-50 {
+/* Dynamic gradients used in MorningBriefing, landing and widgets in dark mode */
+.dark .from-orange-50,
+.dark .from-slate-50 {
   --tw-gradient-from: #06070e !important;
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(6, 7, 14, 0)) !important;
 }
 
-.to-amber-50,
-.to-orange-50 {
+.dark .to-amber-50,
+.dark .to-orange-50 {
   --tw-gradient-to: #0b0d1a !important;
 }
 
-/* Light-tinted panels (Urgent, Success, Muted, Alerts) */
-.bg-red-50,
-.bg-red-900\/20 {
+/* Light-tinted panels in dark mode (Urgent, Success, Muted, Alerts) */
+.dark .bg-red-50,
+.dark .bg-red-900\/20 {
   background-color: rgba(255, 94, 114, 0.12) !important;
   border-color: rgba(255, 94, 114, 0.3) !important;
 }
-.text-red-600,
-.text-red-700 {
+.dark .text-red-600,
+.dark .text-red-700 {
   color: #ff5e72 !important;
 }
 
-.bg-blue-50,
-.bg-blue-900\/20 {
+.dark .bg-blue-50,
+.dark .bg-blue-900\/20 {
   background-color: rgba(94, 159, 255, 0.12) !important;
   border-color: rgba(94, 159, 255, 0.3) !important;
 }
-.text-blue-600,
-.text-blue-700 {
+.dark .text-blue-600,
+.dark .text-blue-700 {
   color: #5e9fff !important;
 }
 
-.bg-green-50,
-.bg-green-900\/20 {
+.dark .bg-green-50,
+.dark .bg-green-900\/20 {
   background-color: rgba(61, 219, 168, 0.12) !important;
   border-color: rgba(61, 219, 168, 0.3) !important;
 }
-.text-green-600,
-.text-green-700 {
+.dark .text-green-600,
+.dark .text-green-700 {
   color: #3ddba8 !important;
 }
 
-.bg-amber-50,
-.bg-amber-500\/5,
-.bg-orange-50 {
+.dark .bg-amber-50,
+.dark .bg-amber-500\/5,
+.dark .bg-orange-50 {
   background-color: rgba(232, 184, 75, 0.04) !important;
   border-color: rgba(232, 184, 75, 0.35) !important;
 }
-.text-amber-600,
-.text-amber-700,
-.text-orange-600 {
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-orange-600 {
   color: #e8b84b !important;
 }
 
-/* Text overrides */
-.text-slate-900,
-.text-slate-800,
-.text-slate-700 {
+/* Text overrides in dark mode */
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
   color: #dde0f5 !important;
 }
 
-.text-slate-600,
-.text-slate-500,
-.text-slate-400 {
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400 {
   color: #8888aa !important;
 }
 
-/* ── Premium Scrollbars ───────────────────────────────────────────────────── */
-*::-webkit-scrollbar {
+/* ── Premium Scrollbars in Dark Mode ───────────────────────────────────────── */
+.dark *::-webkit-scrollbar {
   width: 4px !important;
   height: 4px !important;
   display: block !important;
 }
 
-*::-webkit-scrollbar-track {
+.dark *::-webkit-scrollbar-track {
   background: transparent !important;
 }
 
-*::-webkit-scrollbar-thumb {
+.dark *::-webkit-scrollbar-thumb {
   background: rgba(232, 184, 75, 0.2) !important;
   border-radius: 99px !important;
 }
 
-*::-webkit-scrollbar-thumb:hover {
+.dark *::-webkit-scrollbar-thumb:hover {
   background: rgba(232, 184, 75, 0.4) !important;
 }
 
-* {
+.dark {
   -ms-overflow-style: auto !important;  /* IE and Edge */
   scrollbar-width: thin !important;  /* Firefox */
   scrollbar-color: rgba(232, 184, 75, 0.2) transparent !important;
 }
 
-/* ── Global Inputs ────────────────────────────────────────────────────────── */
-input, textarea, select {
+/* ── Global Inputs in Dark Mode ───────────────────────────────────────────── */
+.dark input, .dark textarea, .dark select {
   background-color: rgba(255, 255, 255, 0.03) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   color: #dde0f5 !important;
@@ -136,16 +135,16 @@ input, textarea, select {
   transition: all 0.15s ease;
 }
 
-input:focus, textarea:focus, select:focus {
+.dark input:focus, .dark textarea:focus, .dark select:focus {
   outline: none !important;
   border-color: #e8b84b !important;
   box-shadow: 0 0 0 3px rgba(232, 184, 75, 0.15) !important;
 }
 
-/* ── Accessibility Focus Rings ────────────────────────────────────────────── */
-a:focus-visible,
-button:focus-visible,
-[role="button"]:focus-visible {
+/* ── Accessibility Focus Rings in Dark Mode ───────────────────────────────── */
+.dark a:focus-visible,
+.dark button:focus-visible,
+.dark [role="button"]:focus-visible {
   outline: 2px solid rgba(232, 184, 75, 0.5) !important;
   outline-offset: 2px !important;
 }
@@ -164,4 +163,20 @@ button:focus-visible,
   background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+}
+
+/* ── General Light Mode Scrollbars and Overrides ────────────────────────── */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 99px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
 }

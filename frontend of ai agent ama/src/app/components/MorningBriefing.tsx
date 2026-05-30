@@ -45,7 +45,7 @@ export function MorningBriefing() {
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
-      setTimeString(now.toLocaleTimeString('en-US', { hour12: false }));
+      setTimeString(now.toLocaleTimeString('en-US', { hour12: true }));
     };
     updateClock();
     const interval = setInterval(updateClock, 1000);
