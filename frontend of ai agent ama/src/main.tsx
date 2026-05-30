@@ -13,6 +13,7 @@ import RyveLogo from "./app/components/RyveLogo";
 import { AuthProvider, useAuth } from "./app/context/AuthContext";
 import { ToastProvider } from "./app/context/ToastContext";
 import RyveSplashScreen from "./app/components/RyveSplashScreen";
+import OAuthCallback from "./app/components/OAuthCallback";
 
 // ── Global Error Boundary — prevents blank page on unhandled React errors ──────
 class ErrorBoundary extends React.Component<
@@ -96,12 +97,12 @@ function LoadingSpinner() {
 }
 
 function RootRedirect() {
-  const { user, loading } = useAuth();
+  const { user, loading, authReady } = useAuth();
   const location = useLocation();
   const params = location.search;
   const hasGmailParam = params.includes('gmail_connected') || params.includes('gmail_error');
 
-  if (loading || user === undefined) return <RyveSplashScreen />;
+  if (!authReady) return <RyveSplashScreen />;
 
   if (hasGmailParam) {
     return <Navigate to={`/dashboard${params}`} replace />;
@@ -112,24 +113,22 @@ function RootRedirect() {
   return <LandingPage />;
 }
 
-
-
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: string[];
 }
 
 function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+  const { user, loading, authReady } = useAuth();
   const location = useLocation();
 
   const hasGmailCallback = location.search.includes('gmail_connected') || location.search.includes('gmail_error');
 
-  if (loading || user === undefined) {
+  if (!authReady) {
     return <RyveSplashScreen />;
   }
 
-  if (user === null) {
+  if (user === null || user === undefined) {
     if (hasGmailCallback) {
       const params = new URLSearchParams(location.search);
       const gEmail = params.get('gmail_connected');
@@ -161,6 +160,9 @@ root.render(
 
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/dashboard" element={<ProtectedRoute><App /></ProtectedRoute>} />
+              <Route path="/auth/callback/google" element={<OAuthCallback />} />
+              <Route path="/auth/callback/facebook" element={<OAuthCallback />} />
+              <Route path="/auth/callback/linkedin" element={<OAuthCallback />} />
               <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
               {/* Legacy /landing route redirects to root */}
               <Route path="/landing" element={<Navigate to="/" replace />} />

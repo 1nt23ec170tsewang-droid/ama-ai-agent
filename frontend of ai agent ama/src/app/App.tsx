@@ -14,6 +14,9 @@ import { useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { QuickAskWidget } from './components/QuickAskWidget';
 import RyveLogo from './components/RyveLogo';
+import BottomNavBar from './components/BottomNavBar';
+import MoreBottomSheet from './components/MoreBottomSheet';
+
 const getInitials = (name: string) => {
   if (!name) return 'U';
   return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
@@ -25,6 +28,7 @@ export default function App() {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('briefing');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // Auto-switch based on tab query param or Gmail OAuth redirects
   useEffect(() => {
@@ -51,7 +55,6 @@ export default function App() {
     navigate(`/dashboard?${params.toString()}`);
     setSidebarOpen(false);
   };
-
 
   const renderView = () => {
     switch (activeView) {
@@ -84,9 +87,9 @@ export default function App() {
             />
           )}
 
-          {/* Sidebar */}
+          {/* Sidebar - hidden completely on mobile <= 768px (Fix 3) */}
           <div className={`
-            fixed lg:relative inset-y-0 left-0 z-50
+            hidden md:block fixed lg:relative inset-y-0 left-0 z-50
             transform transition-transform duration-300 ease-in-out
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           `}>
@@ -98,9 +101,10 @@ export default function App() {
             {/* Mobile header */}
             <div className="lg:hidden flex items-center justify-between p-4 bg-gradient-to-b from-slate-900 to-slate-800 border-b border-slate-700 flex-shrink-0">
               <div className="flex items-center gap-3">
+                {/* Menu hamburger button - hidden completely on mobile <= 768px (Fix 3) */}
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="p-2 text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  className="hidden md:block p-2 text-white hover:bg-slate-700 rounded-lg transition-colors"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -131,13 +135,29 @@ export default function App() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-hidden">
+            {/* Added main-content-mobile-spacer to prevent bottom nav clipping (Fix 3) */}
+            <div className="flex-1 overflow-hidden main-content-mobile-spacer">
               {renderView()}
             </div>
           </main>
           
           {/* Global AI Quick Action Widget — hidden on settings, email, briefing, and chat pages */}
           {activeView !== 'chat' && activeView !== 'briefing' && activeView !== 'settings' && <QuickAskWidget />}
+
+          {/* Mobile Bottom Navigation Bar (Fix 3) */}
+          <BottomNavBar 
+            activeView={activeView} 
+            onViewChange={handleViewChange} 
+            onMoreClick={() => setMoreOpen(true)} 
+          />
+
+          {/* Mobile More Sheet Menu (Fix 3) */}
+          <MoreBottomSheet 
+            isOpen={moreOpen} 
+            onClose={() => setMoreOpen(false)} 
+            activeView={activeView} 
+            onViewChange={handleViewChange} 
+          />
         </div>
       </AppProvider>
     </SettingsProvider>

@@ -16,6 +16,7 @@ import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
 import { API_BASE, setActiveToken } from '../utils/config';
 import { useToast } from './ToastContext';
+import { saveAuthSession, readAuthSession, clearAuthSession } from '../utils/pwaAuth';
 
 interface User {
   id?: string;
@@ -30,6 +31,7 @@ interface AuthContextType {
   user: User | null | undefined;
   token: string | null;
   loading: boolean;
+  authReady: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; unverified?: boolean }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string; unverified?: boolean }>;
   logout: () => Promise<void>;
@@ -45,8 +47,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
-  const [tokenState, setTokenState] = useState<string | null>(() => localStorage.getItem('authToken'));
+  const [tokenState, setTokenState] = useState<string | null>(() => localStorage.getItem('ama_token') || localStorage.getItem('authToken'));
   const [loading, setLoading] = useState<boolean>(true);
+  const [authReady, setAuthReady] = useState<boolean>(false);
   const { showToast } = useToast();
 
   const setToken = (t: string | null) => {
@@ -54,12 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActiveToken(t);
     if (t) {
       localStorage.setItem('authToken', t);
+      localStorage.setItem('ama_token', t);
     } else {
       localStorage.removeItem('authToken');
+      localStorage.removeItem('ama_token');
     }
   };
 
-  // ── Original REST Auth Fallback Methods ─────────────────────────────────────
+  // ── REST Auth Fallback Profile Method ──────────────────────────────────────
   const fetchProfileFallback = async (accessToken: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/auth/me`, {
@@ -82,81 +87,101 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // ── PWA-Resilient Token Refresh Method ─────────────────────────────────────
   const silentRefreshFallback = async () => {
-    // First try to restore from saved token (works offline for PWA)
-    const savedToken = localStorage.getItem('authToken');
-    
+    // Read from IndexedDB / localStorage session (Fix 4)
+    const session = await readAuthSession();
+    const savedToken = session?.token || localStorage.getItem('ama_token') || localStorage.getItem('authToken');
+    const savedRefreshToken = session?.refreshToken || localStorage.getItem('ama_refresh_token');
+
     try {
       const res = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: savedRefreshToken }),
         credentials: 'include'
       });
+
       if (res.ok) {
         const data = await res.json();
-        setToken(data.accessToken);
-        await fetchProfileFallback(data.accessToken);
-        return data.accessToken;
-      }
-      
-      // Refresh failed - try the saved token
-      if (savedToken) {
-        const ok = await fetchProfileFallback(savedToken);
-        if (ok) {
-          setToken(savedToken);
-          return savedToken;
+        const freshToken = data.token || data.accessToken;
+        const freshRefreshToken = data.refreshToken || savedRefreshToken || '';
+        setToken(freshToken);
+        setUser(data.user);
+
+        // Update IndexedDB persistent session (Fix 4)
+        try {
+          const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+          await saveAuthSession(freshToken, freshRefreshToken, data.user, expiry);
+        } catch (e) {
+          console.warn('Silent refresh saveAuthSession failed:', e);
         }
 
-        // Even if validation/refresh fails (e.g., session expired or backend down),
-        // we KEEP the cached PWA user session so the user remains logged in permanently
-        // until they explicitly click the Logout button!
-        const storedUser = localStorage.getItem('ama_user_cache');
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            setUser(parsed);
-            setToken(savedToken);
-            return savedToken;
-          } catch {}
-        }
+        return freshToken;
       }
-      
-      // No token at all - clear state
-      setToken(null);
-      setUser(null);
+
+      if (res.status === 401) {
+        // Explicit invalid token/session expired -> clean all credentials
+        console.warn('Session expired (401 response). Logging out.');
+        await clearAuthSession();
+        setToken(null);
+        setUser(null);
+        return null;
+      }
+
+      // Other server error (e.g. 500, 503, etc.) - retain existing tokens/user for offline support
+      if (session) {
+        setToken(session.token);
+        setUser(session.user);
+        return session.token;
+      }
       return null;
     } catch (networkError) {
-      // Network error (offline / server unreachable) - preserve existing auth state
-      // This is critical for PWA users to stay logged in when the backend is down
-      if (savedToken) {
-        const ok = await fetchProfileFallback(savedToken).catch(() => false);
-        if (ok) {
-          setToken(savedToken);
-          return savedToken;
-        }
-        // Even if profile fetch fails, keep token in localStorage
-        // The user can still use cached features of the PWA
-        // We'll attempt profile via a minimal decode
-        const storedUser = localStorage.getItem('ama_user_cache');
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            setUser(parsed);
-            setToken(savedToken);
-            return savedToken;
-          } catch {}
-        }
+      // Network offline or timeout - preserve current cached session, do NOT log out
+      console.warn('Network error during silent refresh fallback. Retaining active session.', networkError);
+      if (session) {
+        setToken(session.token);
+        setUser(session.user);
+        return session.token;
       }
-      setToken(null);
-      setUser(null);
       return null;
     }
   };
 
-  // ── Authentication Synchronization Listener ──────────────────────────────────
+  // ── Authentication Startup & Synchronization (Fix 4) ──────────────────────
   useEffect(() => {
+    const startupSessionRestore = async () => {
+      try {
+        const session = await readAuthSession();
+        if (session) {
+          setTokenState(session.token);
+          setActiveToken(session.token);
+          setUser(session.user);
+        } else {
+          // Legacy cache fallback
+          const savedToken = localStorage.getItem('authToken');
+          const storedUser = localStorage.getItem('ama_user_cache');
+          if (savedToken && storedUser) {
+            setTokenState(savedToken);
+            setActiveToken(savedToken);
+            try { setUser(JSON.parse(storedUser)); } catch {}
+          }
+        }
+      } catch (err) {
+        console.warn('IndexedDB restoration failed during startup:', err);
+      } finally {
+        setAuthReady(true);
+      }
+    };
+
+    startupSessionRestore();
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return; // Wait for initial IndexedDB read before setting up listeners
+
     if (auth) {
-      // Modern Path: Real-time Firebase Auth ID token listener
+      // Firebase Path
       const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           try {
@@ -197,15 +222,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               photoURL
             };
             setUser(userData);
-            // Cache for PWA offline recovery
+
+            // Sync to IndexedDB PWA session storage
+            try {
+              const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+              await saveAuthSession(token, firebaseUser.refreshToken || '', userData, expiry);
+            } catch (pwaErr) {
+              console.warn('PWA sync error:', pwaErr);
+            }
+
             try { localStorage.setItem('ama_user_cache', JSON.stringify(userData)); } catch {}
           } catch (tokenErr) {
             console.error('Firebase Auth session refresh failed:', tokenErr);
             showToast('Your session has expired. Please log in again.', 'error');
+            await clearAuthSession();
             setToken(null);
             setUser(null);
           }
         } else {
+          await clearAuthSession();
           setToken(null);
           setUser(null);
         }
@@ -214,10 +249,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return () => unsubscribe();
     } else {
-      // Fallback Path: Local Express REST Session engine
+      // Express REST Path
       let refreshInterval: any;
 
-      const initAuth = async () => {
+      const initRestAuth = async () => {
         setLoading(true);
         const activeToken = await silentRefreshFallback();
         
@@ -229,15 +264,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       };
 
-      initAuth();
+      initRestAuth();
 
       return () => {
         if (refreshInterval) clearInterval(refreshInterval);
       };
     }
-  }, [showToast]);
+  }, [authReady, showToast]);
 
-  // ── Sign-up / Login Actions ────────────────────────────────────────────────
+  // ── Authentication Actions ──────────────────────────────────────────────────
   const register = async (name: string, email: string, password: string) => {
     if (auth) {
       try {
@@ -260,7 +295,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: err.message || 'Registration failed.' };
       }
     } else {
-      // Fallback to Express backend endpoint
       try {
         const res = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
@@ -276,8 +310,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { success: false, error: data.message || 'Registration failed' };
         }
 
-        setToken(data.accessToken);
+        const tokenVal = data.token || data.accessToken;
+        setToken(tokenVal);
         setUser(data.user);
+
+        // Save session (Fix 4)
+        try {
+          const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+          await saveAuthSession(tokenVal, data.refreshToken || '', data.user, expiry);
+        } catch (e) {
+          console.warn('Register session save failed:', e);
+        }
+
         return { success: true };
       } catch {
         return { success: false, error: 'Cannot connect to server. Is the backend running?' };
@@ -295,7 +339,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: err.message || 'Invalid email or password.' };
       }
     } else {
-      // Fallback to Express backend endpoint
       try {
         const res = await fetch(`${API_BASE}/api/auth/login`, {
           method: 'POST',
@@ -306,8 +349,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
 
         if (res.ok) {
-          setToken(data.accessToken);
+          const tokenVal = data.token || data.accessToken;
+          setToken(tokenVal);
           setUser(data.user);
+
+          // Save session (Fix 4)
+          try {
+            const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+            await saveAuthSession(tokenVal, data.refreshToken || '', data.user, expiry);
+          } catch (e) {
+            console.warn('Login session save failed:', e);
+          }
+
           return { success: true };
         }
 
@@ -323,10 +376,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    // Explicit sign out: clear all localStorage and reset react auth state
     try {
-      localStorage.clear();
-    } catch {}
+      await clearAuthSession();
+    } catch (e) {
+      console.warn('clearAuthSession failed during logout:', e);
+    }
+    
     if (auth) {
       try {
         await signOut(auth);
@@ -334,7 +389,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Firebase logout error:', err);
       }
     } else {
-      // Fallback to Express backend endpoint
       try {
         await fetch(`${API_BASE}/api/auth/logout`, {
           method: 'POST',
@@ -367,13 +421,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('ama_user_cache', JSON.stringify(parsed));
       }
     } catch {}
+
+    // Sync to IndexedDB session
+    try {
+      const session = await readAuthSession();
+      if (session && session.user) {
+        session.user.photoURL = url;
+        await saveAuthSession(session.token, session.refreshToken, session.user, session.expiry);
+      }
+    } catch {}
   }, [user?.id]);
 
   const verifyEmail = async (email: string, code: string) => {
     if (auth) {
       return { success: true };
     } else {
-      // Fallback to Express backend endpoint
       try {
         const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
           method: 'POST',
@@ -383,8 +445,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         const data = await res.json();
         if (res.ok) {
-          setToken(data.accessToken);
+          const tokenVal = data.token || data.accessToken;
+          setToken(tokenVal);
           setUser(data.user);
+
+          // Save session
+          try {
+            const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+            await saveAuthSession(tokenVal, data.refreshToken || '', data.user, expiry);
+          } catch (e) {
+            console.warn('Verify email saveAuthSession failed:', e);
+          }
+
           return { success: true };
         }
         return { success: false, error: data.message || 'Verification failed.' };
@@ -398,7 +470,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (auth) {
       return { success: true };
     } else {
-      // Fallback to Express backend endpoint
       try {
         const res = await fetch(`${API_BASE}/api/auth/resend-verification`, {
           method: 'POST',
@@ -425,7 +496,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: err.message || 'Failed to send password reset email.' };
       }
     } else {
-      // Fallback to Express backend endpoint
       try {
         const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
           method: 'POST',
@@ -465,7 +535,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const mockName = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} User`;
         const mockPassword = `OauthFallbackPass123!_${providerName}`;
         
-        // 1. Try to login first
         const loginRes = await fetch(`${API_BASE}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -475,12 +544,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (loginRes.ok) {
           const loginData = await loginRes.json();
-          setToken(loginData.accessToken);
+          const tokenVal = loginData.token || loginData.accessToken;
+          setToken(tokenVal);
           setUser(loginData.user);
+
+          // Save PWA session
+          try {
+            const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+            await saveAuthSession(tokenVal, loginData.refreshToken || '', loginData.user, expiry);
+          } catch (e) {
+            console.warn('OAuth fallback saveAuthSession failed:', e);
+          }
+
           return { success: true };
         }
         
-        // 2. If login failed (e.g. user does not exist), register them
         const regRes = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -493,7 +571,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         
         if (regRes.ok) {
-          // 3. Since registration succeeded, log them in to get the token & user
           const loginRes2 = await fetch(`${API_BASE}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -502,13 +579,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
           if (loginRes2.ok) {
             const loginData2 = await loginRes2.json();
-            setToken(loginData2.accessToken);
+            const tokenVal2 = loginData2.token || loginData2.accessToken;
+            setToken(tokenVal2);
             setUser(loginData2.user);
+
+            // Save PWA session
+            try {
+              const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
+              await saveAuthSession(tokenVal2, loginData2.refreshToken || '', loginData2.user, expiry);
+            } catch (e) {
+              console.warn('OAuth fallback 2 saveAuthSession failed:', e);
+            }
+
             return { success: true };
           }
         }
         
-        // If everything failed, try to get error message
         const regData = await regRes.json().catch(() => ({}));
         return { success: false, error: regData.message || 'Social login fallback failed.' };
       } catch (err) {
@@ -527,7 +613,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: err.message || 'Password reset failed.' };
       }
     } else {
-      // Fallback to Express backend endpoint
       try {
         const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
           method: 'POST',
@@ -548,6 +633,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       token: tokenState,
       loading,
+      authReady,
       login,
       register,
       logout,

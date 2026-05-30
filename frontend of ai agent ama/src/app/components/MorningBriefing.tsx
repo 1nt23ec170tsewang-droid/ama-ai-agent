@@ -44,6 +44,7 @@ export function MorningBriefing() {
     }
   });
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState(false);
   const [timeString, setTimeString] = useState('');
 
   // Live HH:MM:SS clock
@@ -75,38 +76,29 @@ export function MorningBriefing() {
 
   const handleGenerate = async (regenerate = false) => {
     setGenerating(true);
+    setError(false);
+    setBriefing(null); // Never show old text while generating
     const toastId = showToast('Preparing your strategic morning briefing…', 'loading');
     
     try {
-      const res = await fetch(`${API_BASE}/api/ama/briefing`, {
+      const res = await fetch(`${API_BASE}/api/briefing/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ date: todayLabel, regenerate: !!regenerate })
+        body: JSON.stringify({ userId: user?.id, date: todayISO, regenerate: !!regenerate })
       });
       
-      if (!res.ok) throw new Error('API request failed');
+      if (!res.ok) throw new Error('Briefing API failed');
       const data = await res.json();
       
       setBriefing(data.briefing);
       localStorage.setItem('ama_morning_briefing_json', JSON.stringify(data.briefing));
       showToast('Briefing ready!', 'success');
     } catch (err) {
-      console.warn('Backend API briefing failed, falling back to local fallback:', err);
-      showToast('Backend offline. Displaying simulated briefing.', 'warning');
-      const fallbackData = {
-        executiveSummary: "Today's agenda focuses heavily on core priorities and closing outstanding items. Keep meetings aligned to the afternoon slot to maximize productivity.",
-        keyRisks: [
-          "Potential overlap in calendar timelines during midday syncs.",
-          "Uncommitted changes in high priority deliverables."
-        ],
-        strategicFocus: "Protect early morning focus hours for deep task execution.",
-        successMetric: "Complete all high-priority deliverables successfully."
-      };
-      setBriefing(fallbackData);
-      localStorage.setItem('ama_morning_briefing_json', JSON.stringify(fallbackData));
+      console.error('Failed to generate morning briefing:', err);
+      setError(true);
     } finally {
       removeToast(toastId);
       setGenerating(false);
@@ -201,15 +193,16 @@ export function MorningBriefing() {
               </h2>
             </div>
 
-            {(!briefing || typeof briefing !== 'object' || !briefing.executiveSummary) && !generating && (
+            {/* 1. IDLE STATE */}
+            {!briefing && !generating && !error && (
               <div className="text-center py-6">
-                <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm">
-                  Click Generate to pull your cached morning briefing or build a fresh daily overview.
+                <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm font-medium">
+                  Click Generate to build your daily overview powered by Claude 3.5 Sonnet.
                 </p>
                 <button
                   id="generate-briefing-btn"
                   onClick={() => handleGenerate(false)}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl hover:from-amber-600 hover:to-orange-700 transition-all shadow-lg shadow-amber-500/30 font-medium mx-auto active:scale-95"
+                  className="flex items-center gap-2 px-6 py-3 bg-[#e8b84b] hover:bg-[#f5d07a] text-[#06070e] font-bold rounded-xl transition-all shadow-lg shadow-[#e8b84b]/15 mx-auto active:scale-95 text-sm uppercase tracking-wider"
                 >
                   <Sparkles className="w-4 h-4" />
                   Generate Briefing
@@ -217,22 +210,60 @@ export function MorningBriefing() {
               </div>
             )}
 
+            {/* 2. LOADING STATE (SHIMMER SKELETON) */}
             {generating && (
-              <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 py-4 justify-center">
-                <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
-                <span className="text-sm font-medium">Ryve is preparing your briefing…</span>
+              <div className="space-y-6 animate-pulse p-5 border border-slate-700/30 rounded-2xl bg-slate-900/10 dark:bg-slate-900/30">
+                <div className="space-y-2.5">
+                  <div className="h-3.5 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
+                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
+                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-5/6"></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 p-4 border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <div className="h-3.5 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+                    <div className="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
+                    <div className="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-4/5"></div>
+                  </div>
+                  <div className="space-y-2 p-4 border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <div className="h-3.5 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+                    <div className="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-full"></div>
+                    <div className="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-4/5"></div>
+                  </div>
+                </div>
+                <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+                  <div className="h-3.5 bg-slate-200 dark:bg-slate-700 rounded w-1/4"></div>
+                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
+                </div>
               </div>
             )}
 
-            {briefing && typeof briefing === 'object' && briefing.executiveSummary && !generating && (
+            {/* 3. ERROR STATE (RED BORDER PANEL) */}
+            {error && !generating && (
+              <div className="p-6 border-2 border-red-500/20 rounded-2xl bg-red-950/5 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <p className="text-red-600 dark:text-red-400 text-sm font-bold leading-relaxed">
+                  Unable to generate briefing right now. Check your connection and try again.
+                </p>
+                <button
+                  onClick={() => handleGenerate(true)}
+                  className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all active:scale-95 text-sm"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* 4. SUCCESS / CACHED STATE (GOLDEN PANEL) */}
+            {briefing && typeof briefing === 'object' && briefing.executiveSummary && !generating && !error && (
               <div className="border-2 border-amber-500/20 rounded-2xl bg-gradient-to-br from-amber-500/[0.03] via-orange-500/[0.03] to-yellow-500/[0.03] p-5 shadow-sm overflow-hidden relative">
-                {/* Ambient glow decoration */}
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
                 
                 <div className="space-y-6">
                   {/* Executive Summary */}
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-1.5">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-[#e8b84b] mb-2 flex items-center gap-1.5 font-mono">
                       <span>📋</span> Executive Summary
                     </h4>
                     <p className="text-slate-700 dark:text-slate-200 text-sm md:text-base leading-relaxed font-medium">
@@ -243,7 +274,7 @@ export function MorningBriefing() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Key Risks */}
                     <div className="p-4 rounded-xl bg-red-500/[0.03] border border-red-500/10">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 mb-2.5 flex items-center gap-1.5">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 mb-2.5 flex items-center gap-1.5 font-mono">
                         <span>⚠️</span> Key Risks
                       </h4>
                       <ul className="space-y-2">
@@ -258,7 +289,7 @@ export function MorningBriefing() {
 
                     {/* Strategic Focus */}
                     <div className="p-4 rounded-xl bg-blue-500/[0.03] border border-blue-500/10">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2.5 flex items-center gap-1.5">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2.5 flex items-center gap-1.5 font-mono">
                         <span>💡</span> Strategic Focus
                       </h4>
                       <p className="text-xs md:text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">
@@ -270,24 +301,24 @@ export function MorningBriefing() {
                   {/* Success Metric */}
                   <div className="p-4 rounded-xl bg-green-500/[0.03] border border-green-500/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div>
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-green-600 dark:text-green-400 mb-1 flex items-center gap-1.5">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-green-600 dark:text-green-400 mb-1 flex items-center gap-1.5 font-mono">
                         <span>🎯</span> Success Metric
                       </h4>
                       <p className="text-sm text-slate-700 dark:text-slate-200 font-bold">
                         {briefing.successMetric || ''}
                       </p>
                     </div>
-                    <div className="px-3 py-1 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full text-[10px] font-semibold border border-green-500/20 max-w-max">
+                    <div className="px-3 py-1 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full text-[10px] font-semibold border border-green-500/20 max-w-max font-mono">
                       Measurable Goal
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
-                  <span className="text-[10px] text-slate-400">Briefing retrieved from daily cache</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Briefing retrieved from daily cache</span>
                   <button
                     onClick={() => handleGenerate(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 border border-amber-300 dark:border-amber-700 hover:border-amber-400 rounded-lg transition-all active:scale-95"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-600 dark:text-[#e8b84b] hover:text-amber-700 dark:hover:text-[#f5d07a] border border-amber-300 dark:border-[#e8b84b]/30 hover:border-amber-400 rounded-lg transition-all active:scale-95 font-mono uppercase tracking-wider"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     Regenerate

@@ -832,7 +832,7 @@ app.post('/api/auth/resend-verification', async (req, res, next) => {
 
 app.post('/api/auth/refresh', async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
     if (!refreshToken) return res.status(401).json({ message: 'Refresh token missing.' });
 
     let decoded;
@@ -942,7 +942,8 @@ app.post('/api/auth/refresh', async (req, res, next) => {
 
     res.status(200).json({
       token: accessToken,
-      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+      refreshToken: newRefreshToken, // Include in body for client PWA storage
+      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role, photoURL: foundUser.photoURL || '' }
     });
   } catch (error) {
     next(error);
@@ -955,7 +956,7 @@ app.post('/api/auth/refresh', async (req, res, next) => {
 
 app.post('/api/auth/logout', async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
     if (refreshToken) {
       const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
       if (db) {
@@ -969,6 +970,304 @@ app.post('/api/auth/logout', async (req, res, next) => {
 
     res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
     res.status(200).json({ message: 'Logout successful.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ──────────────────────────────────────────
+// AES-256-CBC Encryption Helpers for secure Firestore storage
+// ──────────────────────────────────────────
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'a_very_secret_key_32_characters_long_!'.slice(0, 32); // Must be 32 bytes
+
+function encrypt(text) {
+  if (!text) return '';
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+}
+
+function decrypt(text) {
+  if (!text) return '';
+  const textParts = text.split(':');
+  if (textParts.length < 2) return '';
+  const iv = Buffer.from(textParts.shift(), 'hex');
+  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+  let decrypted = decipher.update(encryptedText);
+  decrypted = Buffer.concat([decrypted, decipher.final()]);
+  return decrypted.toString();
+}
+
+// Helper: Generic social user creation, merging, and JWT return
+async function handleSocialUser(profile, providerName, refreshTokenToStore = '') {
+  const email = profile.email.toLowerCase().trim();
+  const name = profile.name || email.split('@')[0];
+  const avatar = profile.picture || profile.photoURL || '';
+
+  let foundUser = null;
+  if (db) {
+    const snap = await db.collection('users').where('email', '==', email).get();
+    if (!snap.empty) {
+      foundUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+      // Merge account: update missing values
+      const updates = {};
+      if (!foundUser.photoURL && avatar) updates.photoURL = avatar;
+      if (refreshTokenToStore) {
+        updates[`oauth_${providerName}_refresh_token`] = encrypt(refreshTokenToStore);
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.collection('users').doc(foundUser.id).update(updates);
+      }
+    } else {
+      // Create new user
+      const id = Date.now().toString();
+      foundUser = {
+        id,
+        name,
+        email,
+        role: 'user',
+        isEmailVerified: true,
+        photoURL: avatar,
+        createdAt: new Date().toISOString()
+      };
+      if (refreshTokenToStore) {
+        foundUser[`oauth_${providerName}_refresh_token`] = encrypt(refreshTokenToStore);
+      }
+      const mockPassword = await bcrypt.hash(`social_oauth_dummy_${providerName}_${Date.now()}`, 10);
+      await db.collection('users').doc(id).set({ ...foundUser, password: mockPassword });
+    }
+  } else {
+    // In-memory
+    foundUser = inMemoryUsers.find(u => u.email === email);
+    if (foundUser) {
+      if (avatar) foundUser.photoURL = avatar;
+    } else {
+      const id = Date.now().toString();
+      foundUser = {
+        id,
+        name,
+        email,
+        role: 'user',
+        isEmailVerified: true,
+        photoURL: avatar,
+        createdAt: new Date().toISOString()
+      };
+      inMemoryUsers.push(foundUser);
+    }
+  }
+
+  // Generate Access Token (15m)
+  const accessToken = jwt.sign(
+    { id: foundUser.id, email: foundUser.email, name: foundUser.name, company: foundUser.company, role: foundUser.role },
+    SECRET_KEY,
+    { expiresIn: '15m', algorithm: 'HS256' }
+  );
+
+  // Generate Refresh Token (7d)
+  const refreshToken = jwt.sign(
+    { id: foundUser.id, email: foundUser.email },
+    REFRESH_SECRET_KEY,
+    { expiresIn: '7d', algorithm: 'HS256' }
+  );
+
+  // Store refresh token
+  const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  if (db) {
+    await db.collection('refresh_tokens').doc(refreshTokenHash).set({
+      userId: foundUser.id,
+      expiresAt,
+      rotated: false,
+      createdAt: new Date().toISOString()
+    });
+  } else {
+    inMemoryRefreshTokens.push({
+      tokenHash: refreshTokenHash,
+      userId: foundUser.id,
+      expiresAt,
+      rotated: false
+    });
+  }
+
+  return { accessToken, refreshToken, user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role, photoURL: foundUser.photoURL || '' } };
+}
+
+// GET /api/auth/config — public endpoint to load client IDs
+app.get('/api/auth/config', (req, res) => {
+  res.json({
+    googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+    facebookAppId: process.env.FACEBOOK_APP_ID || '',
+    linkedinClientId: process.env.LINKEDIN_CLIENT_ID || ''
+  });
+});
+
+// POST /api/auth/google/callback
+app.post('/api/auth/google/callback', async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: 'Authorization code is required.' });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const redirectUri = `${frontendUrl}/auth/callback/google`;
+
+    // 1. Exchange code for Google access + refresh tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      throw new Error(`Google token exchange failed: ${err}`);
+    }
+
+    const tokenData = await tokenRes.json();
+    const { access_token, refresh_token } = tokenData;
+
+    // 2. Fetch Google profile
+    const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+    if (!profileRes.ok) throw new Error('Failed to retrieve user profile from Google.');
+    const profile = await profileRes.json();
+
+    // 3. Handle user syncing, database storage, and sign JWT
+    const authSession = await handleSocialUser(profile, 'google', refresh_token);
+
+    // Set HTTP-Only Cookie
+    res.cookie('refreshToken', authSession.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(200).json({ accessToken: authSession.accessToken, user: authSession.user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/auth/facebook/callback
+app.post('/api/auth/facebook/callback', async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: 'Authorization code is required.' });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const redirectUri = `${frontendUrl}/auth/callback/facebook`;
+
+    // 1. Exchange code for Facebook token
+    const tokenParams = new URLSearchParams({
+      client_id: process.env.FACEBOOK_APP_ID || '',
+      client_secret: process.env.FACEBOOK_APP_SECRET || '',
+      redirect_uri: redirectUri,
+      code
+    });
+
+    const tokenRes = await fetch(`https://graph.facebook.com/v18.0/oauth/access_token?${tokenParams.toString()}`);
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      throw new Error(`Facebook token exchange failed: ${err}`);
+    }
+    const tokenData = await tokenRes.json();
+    const access_token = tokenData.access_token;
+
+    // 2. Fetch Facebook profile details
+    const profileRes = await fetch(`https://graph.facebook.com/v18.0/me?fields=id,name,email,picture.type(large)&access_token=${access_token}`);
+    if (!profileRes.ok) throw new Error('Failed to retrieve user profile from Facebook.');
+    const profile = await profileRes.json();
+
+    // Wrap to match standard social user structure
+    const wrappedProfile = {
+      name: profile.name,
+      email: profile.email || `${profile.id}@facebook.com`,
+      picture: profile.picture?.data?.url || ''
+    };
+
+    const authSession = await handleSocialUser(wrappedProfile, 'facebook');
+
+    res.cookie('refreshToken', authSession.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(200).json({ accessToken: authSession.accessToken, user: authSession.user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/auth/linkedin/callback
+app.post('/api/auth/linkedin/callback', async (req, res, next) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: 'Authorization code is required.' });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const redirectUri = `${frontendUrl}/auth/callback/linkedin`;
+
+    // 1. Exchange code for LinkedIn token
+    const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: process.env.LINKEDIN_CLIENT_ID || '',
+        client_secret: process.env.LINKEDIN_CLIENT_SECRET || '',
+        redirect_uri: redirectUri
+      })
+    });
+
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      throw new Error(`LinkedIn token exchange failed: ${err}`);
+    }
+    const tokenData = await tokenRes.json();
+    const access_token = tokenData.access_token;
+
+    // 2. Fetch LinkedIn userinfo profile
+    const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+    if (!profileRes.ok) throw new Error('Failed to retrieve user profile from LinkedIn.');
+    const profile = await profileRes.json();
+
+    // Wrap to match standard structure
+    const wrappedProfile = {
+      name: profile.name,
+      email: profile.email,
+      picture: profile.picture || ''
+    };
+
+    const authSession = await handleSocialUser(wrappedProfile, 'linkedin');
+
+    res.cookie('refreshToken', authSession.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.status(200).json({ accessToken: authSession.accessToken, user: authSession.user });
   } catch (error) {
     next(error);
   }
@@ -1287,6 +1586,103 @@ Return ONLY the valid JSON object. Do not include markdown code block formatting
   } catch (error) {
     console.error('Briefing error:', error);
     res.status(500).json({ message: 'Failed to generate briefing.', error: error.message });
+  }
+});
+
+// POST /api/briefing/generate — direct Claude endpoint
+app.post('/api/briefing/generate', authenticateToken, async (req, res) => {
+  try {
+    const { date } = req.body;
+    const user = req.user;
+    const userId = user.id;
+    const todayKey = date || new Date().toISOString().split('T')[0];
+
+    // Check cache in Firestore
+    if (db) {
+      try {
+        const cachedDoc = await db.collection('briefings').doc(`${userId}_${todayKey}`).get();
+        if (cachedDoc.exists()) {
+          console.log(`📦 Cache hit: Retrieved daily briefing from collection briefings under ${userId}_${todayKey}`);
+          const cachedData = cachedDoc.data();
+          return res.json({ briefing: cachedData.content, generatedAt: cachedData.generatedAt });
+        }
+      } catch (cacheErr) {
+        console.warn('Firestore briefings cache fetch failed:', cacheErr);
+      }
+    }
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error('ANTHROPIC_API_KEY is not configured in environment.');
+      return res.status(503).json({ error: 'AI unavailable' });
+    }
+
+    const prompt = `You are Ryve, an executive AI Chief of Staff. Generate a structured morning briefing for ${user.name}${user.company ? `, ${user.role || 'Executive'} at ${user.company}` : ''}.
+
+Date: ${todayKey}
+
+You MUST return a valid JSON object matching the exact format:
+{
+  "executiveSummary": "A concise, professional 2-3 sentence overview of the day's primary theme, focus, and core message.",
+  "keyRisks": [
+    "Short description of risk 1 (under 12 words)",
+    "Short description of risk 2 (under 12 words)"
+  ],
+  "strategicFocus": "A single, highly specific and high-impact directive/focus recommendation.",
+  "successMetric": "A single, measurable success metric/goal for the day."
+}
+
+Return ONLY the valid JSON object. Do not include markdown code block formatting (like \`\`\`json) or other text surrounding it.`;
+
+    let textResponse = '';
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          messages: [
+            { role: 'user', content: prompt }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Claude API error ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      textResponse = data.content?.[0]?.text || '';
+    } catch (aiErr) {
+      console.error('Failed to fetch from Anthropic Claude API:', aiErr);
+      return res.status(503).json({ error: 'AI unavailable' });
+    }
+
+    const parsedBriefing = cleanAndParseJSON(textResponse);
+
+    // Cache in Firestore
+    if (db) {
+      try {
+        await db.collection('briefings').doc(`${userId}_${todayKey}`).set({
+          userId,
+          date: todayKey,
+          content: parsedBriefing,
+          generatedAt: new Date().toISOString()
+        });
+      } catch (cacheSetErr) {
+        console.error('Failed to cache briefing in Firestore briefings collection:', cacheSetErr);
+      }
+    }
+
+    res.json({ briefing: parsedBriefing, generatedAt: new Date().toISOString() });
+  } catch (error) {
+    console.error('Briefing generation error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 

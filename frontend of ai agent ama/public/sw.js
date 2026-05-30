@@ -11,6 +11,12 @@ const ASSETS = [
   '/icons/icon-512x512.png'
 ];
 
+const NEVER_CACHE = [
+  '/api/auth',
+  '/api/briefing',
+  '/auth/callback'
+];
+
 self.addEventListener('install', e => {
   self.skipWaiting(); // Force active immediately
   e.waitUntil(
@@ -35,6 +41,11 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Guarantee live connection for auth routes and briefings (Fix 4)
+  if (NEVER_CACHE.some(path => e.request.url.includes(path))) {
+    return;
+  }
+
   // Navigation fallback: Serve index.html for all client-side page requests
   if (e.request.mode === 'navigate') {
     e.respondWith(

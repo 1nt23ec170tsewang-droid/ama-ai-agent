@@ -180,3 +180,12 @@
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
 }
+
+/* ── Mobile Layout Adjustments (Fix 3) ────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Spacing spacer to avoid bottom navigation bar overlay clipping content */
+  .main-content-mobile-spacer {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
