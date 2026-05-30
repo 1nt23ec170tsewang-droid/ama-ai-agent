@@ -1,7 +1,6 @@
 const CACHE = 'ryve-v1';
 const ASSETS = [
   '/',
-  '/dashboard',
   '/index.html',
   '/manifest.json',
   '/favicon.svg',
@@ -19,6 +18,14 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Navigation fallback: Serve index.html for all client-side page requests
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match('/index.html') || caches.match('/'))
+    );
+    return;
+  }
+
   if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) {
     return;
   }
