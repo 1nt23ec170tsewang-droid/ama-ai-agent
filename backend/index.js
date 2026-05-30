@@ -480,6 +480,14 @@ async function askGemini(prompt, retries = 2, delayMs = 3000) {
 // ──────────────────────────────────────────
 // HEALTH CHECK
 // ──────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.json({
+    message: '🚀 Ryve AI Chief of Staff API Server is running.',
+    healthCheck: '/health',
+    status: 'online'
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
