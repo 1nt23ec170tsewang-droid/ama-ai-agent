@@ -1,5 +1,10 @@
-import { initializeApp } from 'firebase/app';
-import { initializeAuth, browserLocalPersistence, indexedDBLocalPersistence } from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getAuth,
+  initializeAuth,
+  browserLocalPersistence,
+  indexedDBLocalPersistence,
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -12,9 +17,9 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Check if variables are valid and not placeholders
+// Validate config is real (not placeholder env vars)
 const isConfigValid =
-  firebaseConfig.apiKey &&
+  !!firebaseConfig.apiKey &&
   firebaseConfig.apiKey !== 'your_firebase_api_key' &&
   !firebaseConfig.apiKey.startsWith('your_') &&
   !firebaseConfig.apiKey.includes('placeholder');
@@ -26,18 +31,30 @@ export let storage: any = null;
 
 if (isConfigValid) {
   try {
-    app = initializeApp(firebaseConfig);
-    // Use initializeAuth with explicit persistence providers
-    // indexedDBLocalPersistence is more reliable on mobile PWAs
-    auth = initializeAuth(app, {
-      persistence: [indexedDBLocalPersistence, browserLocalPersistence],
-    });
+    // Reuse existing Firebase app if already initialized (React StrictMode / HMR safe)
+    app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+    // Try initializeAuth for persistent IndexedDB sessions (best for PWA/mobile).
+    // If Auth was already instantiated (StrictMode double-invoke or HMR),
+    // fall back to getAuth() which returns the existing instance safely.
+    try {
+      auth = initializeAuth(app, {
+        persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+      });
+    } catch {
+      // "Auth already instantiated" — just get the existing instance
+      auth = getAuth(app);
+    }
+
     db = getFirestore(app);
     storage = getStorage(app);
-    console.log('✅ Firebase initialized with IndexedDB + LocalStorage persistence.');
+    console.log('✅ Firebase initialized (IndexedDB + LocalStorage persistence).');
   } catch (err) {
     console.error('❌ Firebase initialization failed:', err);
+    // Do NOT rethrow — let app render in offline fallback mode
   }
 } else {
-  console.warn('⚠️ Firebase running in hybrid offline fallback mode — environment variables are placeholders.');
+  console.warn(
+    '⚠️ Firebase env vars are missing or placeholder. Running in offline/REST fallback mode.'
+  );
 }

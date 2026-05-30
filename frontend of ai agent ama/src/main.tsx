@@ -14,6 +14,66 @@ import { AuthProvider, useAuth } from "./app/context/AuthContext";
 import { ToastProvider } from "./app/context/ToastContext";
 import RyveSplashScreen from "./app/components/RyveSplashScreen";
 
+// ── Global Error Boundary — prevents blank page on unhandled React errors ──────
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: '' };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error: String(error?.message || error) };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error('🔴 App Error Boundary caught:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: '100vh', background: '#09051d', display: 'flex',
+          flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'Inter, system-ui, sans-serif', padding: '24px', textAlign: 'center'
+        }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: 16, marginBottom: 24,
+            background: 'linear-gradient(135deg,#FF6B00,#ff9a4d)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 28
+          }}>⚡</div>
+          <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 700, margin: '0 0 8px' }}>
+            Something went wrong
+          </h1>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, maxWidth: 360, margin: '0 0 28px' }}>
+            Ryve hit an unexpected error. Try refreshing the page — your data is safe.
+          </p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: '' }); window.location.href = '/'; }}
+            style={{
+              padding: '12px 28px', background: '#FF6B00', color: '#fff',
+              border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 14,
+              cursor: 'pointer', marginRight: 12
+            }}
+          >
+            Reload App
+          </button>
+          {this.state.error && (
+            <details style={{ marginTop: 24, color: 'rgba(255,255,255,0.3)', fontSize: 11, maxWidth: 480 }}>
+              <summary style={{ cursor: 'pointer' }}>Error details</summary>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 8 }}>
+                {this.state.error}
+              </pre>
+            </details>
+          )}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -87,23 +147,25 @@ function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
 const root = createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <ToastProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<RootRedirect />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+    <ErrorBoundary>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<RootRedirect />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
 
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/dashboard" element={<ProtectedRoute><App /></ProtectedRoute>} />
-            <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
-            {/* Legacy /landing route redirects to root */}
-            <Route path="/landing" element={<Navigate to="/" replace />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/dashboard" element={<ProtectedRoute><App /></ProtectedRoute>} />
+              <Route path="/auth/callback" element={<Navigate to="/dashboard" replace />} />
+              {/* Legacy /landing route redirects to root */}
+              <Route path="/landing" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );
