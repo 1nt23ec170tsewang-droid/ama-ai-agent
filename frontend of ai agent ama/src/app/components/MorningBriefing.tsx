@@ -33,7 +33,12 @@ export function MorningBriefing() {
   const [briefing, setBriefing] = useState<BriefingData | null>(() => {
     try {
       const cached = localStorage.getItem('ama_morning_briefing_json');
-      return cached ? JSON.parse(cached) : null;
+      if (!cached) return null;
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object' && parsed.executiveSummary) {
+        return parsed as BriefingData;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -196,7 +201,7 @@ export function MorningBriefing() {
               </h2>
             </div>
 
-            {!briefing && !generating && (
+            {(!briefing || typeof briefing !== 'object' || !briefing.executiveSummary) && !generating && (
               <div className="text-center py-6">
                 <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm">
                   Click Generate to pull your cached morning briefing or build a fresh daily overview.
@@ -219,7 +224,7 @@ export function MorningBriefing() {
               </div>
             )}
 
-            {briefing && !generating && (
+            {briefing && typeof briefing === 'object' && briefing.executiveSummary && !generating && (
               <div className="border-2 border-amber-500/20 rounded-2xl bg-gradient-to-br from-amber-500/[0.03] via-orange-500/[0.03] to-yellow-500/[0.03] p-5 shadow-sm overflow-hidden relative">
                 {/* Ambient glow decoration */}
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
@@ -231,7 +236,7 @@ export function MorningBriefing() {
                       <span>📋</span> Executive Summary
                     </h4>
                     <p className="text-slate-700 dark:text-slate-200 text-sm md:text-base leading-relaxed font-medium">
-                      {briefing.executiveSummary}
+                      {briefing.executiveSummary || ''}
                     </p>
                   </div>
 
@@ -242,10 +247,10 @@ export function MorningBriefing() {
                         <span>⚠️</span> Key Risks
                       </h4>
                       <ul className="space-y-2">
-                        {briefing.keyRisks && briefing.keyRisks.map((risk, idx) => (
+                        {Array.isArray(briefing.keyRisks) && briefing.keyRisks.map((risk, idx) => (
                           <li key={idx} className="text-xs md:text-sm text-slate-600 dark:text-slate-300 flex items-start gap-2">
                             <span className="text-red-500 mt-1">•</span>
-                            <span>{risk}</span>
+                            <span>{risk || ''}</span>
                           </li>
                         ))}
                       </ul>
@@ -257,7 +262,7 @@ export function MorningBriefing() {
                         <span>💡</span> Strategic Focus
                       </h4>
                       <p className="text-xs md:text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">
-                        "{briefing.strategicFocus}"
+                        "{briefing.strategicFocus || ''}"
                       </p>
                     </div>
                   </div>
@@ -269,7 +274,7 @@ export function MorningBriefing() {
                         <span>🎯</span> Success Metric
                       </h4>
                       <p className="text-sm text-slate-700 dark:text-slate-200 font-bold">
-                        {briefing.successMetric}
+                        {briefing.successMetric || ''}
                       </p>
                     </div>
                     <div className="px-3 py-1 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full text-[10px] font-semibold border border-green-500/20 max-w-max">
