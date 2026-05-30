@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeAuth, browserLocalPersistence, indexedDBLocalPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -13,9 +13,9 @@ const firebaseConfig = {
 };
 
 // Check if variables are valid and not placeholders
-const isConfigValid = 
-  firebaseConfig.apiKey && 
-  firebaseConfig.apiKey !== 'your_firebase_api_key' && 
+const isConfigValid =
+  firebaseConfig.apiKey &&
+  firebaseConfig.apiKey !== 'your_firebase_api_key' &&
   !firebaseConfig.apiKey.startsWith('your_') &&
   !firebaseConfig.apiKey.includes('placeholder');
 
@@ -27,13 +27,17 @@ export let storage: any = null;
 if (isConfigValid) {
   try {
     app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
+    // Use initializeAuth with explicit persistence providers
+    // indexedDBLocalPersistence is more reliable on mobile PWAs
+    auth = initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+    });
     db = getFirestore(app);
     storage = getStorage(app);
-    console.log('✅ Firebase Client successfully initialized with standard getAuth.');
+    console.log('✅ Firebase initialized with IndexedDB + LocalStorage persistence.');
   } catch (err) {
     console.error('❌ Firebase initialization failed:', err);
   }
 } else {
-  console.warn('⚠️ Firebase Client is running in hybrid offline fallback mode because environment variables are placeholders or unconfigured.');
+  console.warn('⚠️ Firebase running in hybrid offline fallback mode — environment variables are placeholders.');
 }

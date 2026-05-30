@@ -26,7 +26,7 @@ const sendVerificationEmail = async (email, code) => {
   const { data, error } = await resend.emails.send({
     from: 'onboarding@resend.dev',
     to: email,
-    subject: 'Verification Code for AMA AI',
+    subject: 'Verification Code for Ryve',
     html: `<strong>Your 6-digit verification code is: ${code}</strong>`
   });
 
@@ -105,7 +105,7 @@ if (OPENROUTER_API_KEY) {
 }
 
 /** Call OpenRouter (ChatGPT 4.1) with a plain text prompt */
-async function askOpenRouter(prompt, systemPrompt = 'You are Ama, an AI Chief of Staff.') {
+async function askOpenRouter(prompt, systemPrompt = 'You are Ryve, an AI Chief of Staff.') {
   if (!OPENROUTER_API_KEY) throw new Error('OpenRouter API key not configured.');
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -133,7 +133,7 @@ async function askOpenRouter(prompt, systemPrompt = 'You are Ama, an AI Chief of
 }
 
 /** Call OpenRouter with a full messages array (for multi-turn chat) */
-async function askOpenRouterMessages(messages, systemPrompt = 'You are Ama, an AI Chief of Staff.') {
+async function askOpenRouterMessages(messages, systemPrompt = 'You are Ryve, an AI Chief of Staff.') {
   if (!OPENROUTER_API_KEY) throw new Error('OpenRouter API key not configured.');
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
