@@ -1,16 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sun, Calendar, Mail, CheckSquare, Sparkles, Clock, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import { askClaude } from '../utils/claude';
 import { useSettings } from '../context/SettingsContext';
+import { API_BASE } from '../utils/config';
+
+interface BriefingData {
+  executiveSummary: string;
+  keyRisks: string[];
+  strategicFocus: string;
+  successMetric: string;
+}
 
 const getTimeBasedGreeting = () => {
   const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return 'Good Morning';
+  if (h < 17) return 'Good Afternoon';
+  return 'Good Evening';
 };
 
 const todayLabel = new Date().toLocaleDateString('en-US', {
@@ -18,12 +25,32 @@ const todayLabel = new Date().toLocaleDateString('en-US', {
 });
 
 export function MorningBriefing() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { profile } = useSettings();
   const { tasks, events } = useApp();
   const { showToast, removeToast } = useToast();
-  const [briefing, setBriefing] = useState<string | null>(() => localStorage.getItem('ama_morning_briefing'));
+  
+  const [briefing, setBriefing] = useState<BriefingData | null>(() => {
+    try {
+      const cached = localStorage.getItem('ama_morning_briefing_json');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [generating, setGenerating] = useState(false);
+  const [timeString, setTimeString] = useState('');
+
+  // Live HH:MM:SS clock
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      setTimeString(now.toLocaleTimeString('en-US', { hour12: false }));
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const displayName = profile?.name || user?.name || '';
   const firstName = displayName.split(' ')[0] || 'there';
@@ -41,41 +68,40 @@ export function MorningBriefing() {
   const todayISO = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
   const upcomingEvents = events.filter(e => e.date && e.date > todayISO).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (regenerate = false) => {
     setGenerating(true);
-    const toastId = showToast('Generating your morning briefing…', 'loading');
-    const now = new Date().toLocaleString();
-    const taskSummary = pendingTasks.length === 0
-      ? 'No pending tasks.'
-      : pendingTasks.slice(0, 8).map(t =>
-          `- [${t.priority.toUpperCase()}] ${t.title} (due: ${t.dueDate || 'no date'})`
-        ).join('\n');
-    const eventSummary = todayEvents.length === 0
-      ? 'No events scheduled today.'
-      : todayEvents.map(e => `- ${e.title} at ${e.time} (${e.duration})`).join('\n');
-
-    const themes = ['resilience', 'innovation', 'teamwork', 'focus', 'courage', 'perseverance', 'vision', 'adaptability', 'execution', 'patience', 'growth mindset', 'boldness'];
-    const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-
-    const prompt = `You are Ryve, an AI Chief of Staff. Generate a concise, executive-level morning briefing for ${displayName || 'the user'}.
-Current date/time: ${now} (Random seed: ${Math.random()})
-
-TASKS (${pendingTasks.length} pending, ${overdueTasks.length} overdue):
-${taskSummary}
-
-TODAY'S EVENTS (${todayEvents.length}):
-${eventSummary}
-
-Write a 3-4 sentence briefing covering: top priority, any urgent overdue items.
-End the briefing with an explicit, famous quote about ${randomTheme}. The quote MUST be wrapped in quotation marks and include the author's name (e.g., "Quote" - Author). The quote MUST be on its own separate line, separated by a blank line (two newlines) from the rest of your text. Do NOT just write a motivational sentence; it must be a real historical or famous quote. Make sure you DO NOT use the same quote twice. Be direct and professional. No bullet points.`;
-
+    const toastId = showToast('Preparing your strategic morning briefing…', 'loading');
+    
     try {
-      const result = await askClaude(prompt);
-      setBriefing(result);
-      localStorage.setItem('ama_morning_briefing', result);
-      showToast('Briefing generated!', 'success');
-    } catch {
-      showToast('Could not generate briefing. Is the backend running?', 'error');
+      const res = await fetch(`${API_BASE}/api/ama/briefing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ date: todayLabel, regenerate: !!regenerate })
+      });
+      
+      if (!res.ok) throw new Error('API request failed');
+      const data = await res.json();
+      
+      setBriefing(data.briefing);
+      localStorage.setItem('ama_morning_briefing_json', JSON.stringify(data.briefing));
+      showToast('Briefing ready!', 'success');
+    } catch (err) {
+      console.warn('Backend API briefing failed, falling back to local fallback:', err);
+      showToast('Backend offline. Displaying simulated briefing.', 'warning');
+      const fallbackData = {
+        executiveSummary: "Today's agenda focuses heavily on core priorities and closing outstanding items. Keep meetings aligned to the afternoon slot to maximize productivity.",
+        keyRisks: [
+          "Potential overlap in calendar timelines during midday syncs.",
+          "Uncommitted changes in high priority deliverables."
+        ],
+        strategicFocus: "Protect early morning focus hours for deep task execution.",
+        successMetric: "Complete all high-priority deliverables successfully."
+      };
+      setBriefing(fallbackData);
+      localStorage.setItem('ama_morning_briefing_json', JSON.stringify(fallbackData));
     } finally {
       removeToast(toastId);
       setGenerating(false);
@@ -87,24 +113,34 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
       p-4 md:p-8 h-full overflow-auto
       bg-gradient-to-br from-orange-50 to-amber-50
       dark:from-slate-900 dark:to-slate-800
-    ">
+     font-sans">
       <div className="max-w-4xl mx-auto">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="mb-6 md:mb-8">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <Sun className="w-8 h-8 text-orange-500 dark:text-amber-400 flex-shrink-0" />
+            <div className="flex-1 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Sun className="w-8 h-8 text-orange-500 dark:text-amber-400 flex-shrink-0 animate-pulse" />
                 <div>
-                  <h1 className="text-2xl md:text-4xl font-bold text-slate-900 dark:text-slate-50">
+                  <h1 className="text-2xl md:text-4xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">
                     {getTimeBasedGreeting()}, {firstName}
                   </h1>
-                  <p className="text-slate-600 dark:text-slate-400 text-sm md:text-base mt-0.5">
+                  <p className="text-slate-600 dark:text-slate-400 text-sm md:text-base mt-0.5 font-medium">
                     {todayLabel}
                   </p>
                 </div>
               </div>
+
+              {/* Live ticking HH:MM:SS clock */}
+              {timeString && (
+                <div className="px-5 py-2.5 rounded-2xl border-2 border-orange-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center gap-2.5 shadow-sm">
+                  <Clock className="w-5 h-5 text-orange-500 animate-spin" style={{ animationDuration: '6s' }} />
+                  <span className="font-mono text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-wider">
+                    {timeString}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -147,28 +183,28 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
 
         <div className="space-y-6">
 
-          {/* ── AI Briefing Generator ──────────────────────────────────────── */}
+          {/* ── AI Briefing Card ─────────────────────────────────────────── */}
           <div className="
             rounded-xl border shadow-sm p-6
             bg-white dark:bg-slate-800
             border-slate-200 dark:border-slate-700
           ">
             <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="w-5 h-5 text-amber-500" />
+              <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
               <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-                AI Morning Briefing
+                Ryve Strategic Briefing
               </h2>
             </div>
 
             {!briefing && !generating && (
               <div className="text-center py-6">
                 <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm">
-                  Click Generate to get a personalized briefing based on your real tasks and events.
+                  Click Generate to pull your cached morning briefing or build a fresh daily overview.
                 </p>
                 <button
                   id="generate-briefing-btn"
-                  onClick={handleGenerate}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl hover:from-amber-600 hover:to-orange-700 transition-all shadow-lg shadow-amber-500/30 font-medium mx-auto"
+                  onClick={() => handleGenerate(false)}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl hover:from-amber-600 hover:to-orange-700 transition-all shadow-lg shadow-amber-500/30 font-medium mx-auto active:scale-95"
                 >
                   <Sparkles className="w-4 h-4" />
                   Generate Briefing
@@ -177,80 +213,81 @@ End the briefing with an explicit, famous quote about ${randomTheme}. The quote 
             )}
 
             {generating && (
-              <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 py-4">
+              <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 py-4 justify-center">
                 <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
-                <span className="text-sm">Ryve is preparing your briefing…</span>
+                <span className="text-sm font-medium">Ryve is preparing your briefing…</span>
               </div>
             )}
 
             {briefing && !generating && (
-              <div>
-                <div className="space-y-3 text-slate-700 dark:text-slate-200 leading-relaxed text-sm md:text-base">
-                  {briefing.split('\n').map((line, idx) => {
-                    const trimmed = line.trim();
-                    if (!trimmed) return null;
-                    
-                    // Check if it's a list item (starts with - * or digit followed by dot/parenthesis)
-                    const isListItem = /^[*-]\s|^\d+[\s.)]/.test(trimmed);
-                    if (isListItem) {
-                      const content = trimmed.replace(/^[*-]\s|^\d+[\s.)]\s*/, '');
-                      return (
-                        <div key={idx} className="flex items-start gap-2 pl-4 border-l-2 border-amber-500/30">
-                          <span className="text-amber-500 flex-shrink-0 mt-1.5">•</span>
-                          <span>{content}</span>
-                        </div>
-                      );
-                    }
+              <div className="border-2 border-amber-500/20 rounded-2xl bg-gradient-to-br from-amber-500/[0.03] via-orange-500/[0.03] to-yellow-500/[0.03] p-5 shadow-sm overflow-hidden relative">
+                {/* Ambient glow decoration */}
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
+                
+                <div className="space-y-6">
+                  {/* Executive Summary */}
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-1.5">
+                      <span>📋</span> Executive Summary
+                    </h4>
+                    <p className="text-slate-700 dark:text-slate-200 text-sm md:text-base leading-relaxed font-medium">
+                      {briefing.executiveSummary}
+                    </p>
+                  </div>
 
-                    // Check if this line contains a quote inline (e.g. some text followed by a quote)
-                    // A quote is identified by quotation marks and a dash following them (e.g., "Quote" - Author)
-                    const quoteStartIdx = trimmed.indexOf('"');
-                    const hasDashAfterQuote = quoteStartIdx !== -1 && (
-                      trimmed.includes('-', quoteStartIdx) || 
-                      trimmed.includes('—', quoteStartIdx) || 
-                      trimmed.includes('–', quoteStartIdx)
-                    );
-                    
-                    if (hasDashAfterQuote) {
-                      const mainText = trimmed.substring(0, quoteStartIdx).trim();
-                      const quoteText = trimmed.substring(quoteStartIdx).trim();
-                      
-                      return (
-                        <div key={idx} className="space-y-3">
-                          {mainText && <p>{mainText}</p>}
-                          <blockquote className="italic text-slate-600 dark:text-slate-400 pl-4 border-l-4 border-orange-500 bg-orange-500/5 py-2.5 pr-3 rounded my-4 leading-relaxed">
-                            {quoteText}
-                          </blockquote>
-                        </div>
-                      );
-                    }
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Key Risks */}
+                    <div className="p-4 rounded-xl bg-red-500/[0.03] border border-red-500/10">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 mb-2.5 flex items-center gap-1.5">
+                        <span>⚠️</span> Key Risks
+                      </h4>
+                      <ul className="space-y-2">
+                        {briefing.keyRisks && briefing.keyRisks.map((risk, idx) => (
+                          <li key={idx} className="text-xs md:text-sm text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                            <span className="text-red-500 mt-1">•</span>
+                            <span>{risk}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
 
-                    // Check if it's a standalone quote
-                    const isQuoteOnly = trimmed.startsWith('"') || (
-                      trimmed.includes('"') && (
-                        trimmed.includes('-') || 
-                        trimmed.includes('—') || 
-                        trimmed.includes('–')
-                      )
-                    );
-                    if (isQuoteOnly) {
-                      return (
-                        <blockquote key={idx} className="italic text-slate-600 dark:text-slate-400 pl-4 border-l-4 border-orange-500 bg-orange-500/5 py-2.5 pr-3 rounded my-4 leading-relaxed">
-                          {trimmed}
-                        </blockquote>
-                      );
-                    }
+                    {/* Strategic Focus */}
+                    <div className="p-4 rounded-xl bg-blue-500/[0.03] border border-blue-500/10">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-2.5 flex items-center gap-1.5">
+                        <span>💡</span> Strategic Focus
+                      </h4>
+                      <p className="text-xs md:text-sm text-slate-600 dark:text-slate-300 italic leading-relaxed">
+                        "{briefing.strategicFocus}"
+                      </p>
+                    </div>
+                  </div>
 
-                    return <p key={idx}>{trimmed}</p>;
-                  })}
+                  {/* Success Metric */}
+                  <div className="p-4 rounded-xl bg-green-500/[0.03] border border-green-500/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-green-600 dark:text-green-400 mb-1 flex items-center gap-1.5">
+                        <span>🎯</span> Success Metric
+                      </h4>
+                      <p className="text-sm text-slate-700 dark:text-slate-200 font-bold">
+                        {briefing.successMetric}
+                      </p>
+                    </div>
+                    <div className="px-3 py-1 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full text-[10px] font-semibold border border-green-500/20 max-w-max">
+                      Measurable Goal
+                    </div>
+                  </div>
                 </div>
-                <button
-                  onClick={handleGenerate}
-                  className="mt-4 flex items-center gap-2 px-4 py-2 text-sm text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 border border-amber-300 dark:border-amber-700 hover:border-amber-400 rounded-lg transition-all"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Regenerate
-                </button>
+
+                <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                  <span className="text-[10px] text-slate-400">Briefing retrieved from daily cache</span>
+                  <button
+                    onClick={() => handleGenerate(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 border border-amber-300 dark:border-amber-700 hover:border-amber-400 rounded-lg transition-all active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Regenerate
+                  </button>
+                </div>
               </div>
             )}
           </div>

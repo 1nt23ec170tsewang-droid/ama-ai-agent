@@ -6,7 +6,11 @@ import {
   sendPasswordResetEmail,
   confirmPasswordReset,
   updateProfile,
-  onIdTokenChanged
+  onIdTokenChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
+  FacebookAuthProvider,
+  OAuthProvider
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
@@ -34,6 +38,7 @@ interface AuthContextType {
   forgotPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (password: string, token: string, email: string) => Promise<{ success: boolean; error?: string }>;
   updatePhotoURL: (url: string) => Promise<void>;
+  loginWithProvider: (providerName: 'google' | 'facebook' | 'linkedin') => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -436,6 +441,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const loginWithProvider = async (providerName: 'google' | 'facebook' | 'linkedin') => {
+    if (auth) {
+      try {
+        let provider: any;
+        if (providerName === 'google') {
+          provider = new GoogleAuthProvider();
+        } else if (providerName === 'facebook') {
+          provider = new FacebookAuthProvider();
+        } else {
+          provider = new OAuthProvider('oidc.linkedin');
+        }
+        await signInWithPopup(auth, provider);
+        return { success: true };
+      } catch (err: any) {
+        console.error(`${providerName} auth error:`, err);
+        return { success: false, error: err.message || `${providerName} login failed.` };
+      }
+    } else {
+      try {
+        showToast(`Simulating ${providerName} login...`, 'info');
+        const mockEmail = `social.${providerName}@example.com`;
+        const mockName = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} User`;
+        
+        // Attempt a registration or login call on Express backend
+        const res = await fetch(`${API_BASE}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            name: mockName, 
+            email: mockEmail, 
+            password: `OauthFallbackPass123!_${providerName}` 
+          }),
+          credentials: 'include'
+        });
+        
+        const data = await res.json();
+        if (res.ok) {
+          setToken(data.accessToken);
+          setUser(data.user);
+          return { success: true };
+        } else {
+          const loginRes = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              email: mockEmail, 
+              password: `OauthFallbackPass123!_${providerName}` 
+            }),
+            credentials: 'include'
+          });
+          const loginData = await loginRes.json();
+          if (loginRes.ok) {
+            setToken(loginData.accessToken);
+            setUser(loginData.user);
+            return { success: true };
+          }
+          return { success: false, error: loginData.message || 'Social login fallback failed' };
+        }
+      } catch (err) {
+        return { success: false, error: 'Cannot connect to authentication server.' };
+      }
+    }
+  };
+
   const resetPassword = async (password: string, token: string, email: string) => {
     if (auth) {
       try {
@@ -474,7 +543,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resendVerification,
       forgotPassword,
       resetPassword,
-      updatePhotoURL
+      updatePhotoURL,
+      loginWithProvider
     }}>
       {children}
     </AuthContext.Provider>

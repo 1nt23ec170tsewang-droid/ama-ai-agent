@@ -27,7 +27,7 @@ export default function Login() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
-  const { user, login, verifyEmail, resendVerification, forgotPassword } = useAuth();
+  const { user, login, verifyEmail, resendVerification, forgotPassword, loginWithProvider } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,6 +49,18 @@ export default function Login() {
 
   const handleConnectGmail = () => {
     window.location.href = `${API_BASE}/auth/gmail`;
+  };
+
+  const handleSocialLogin = async (provider: 'google' | 'facebook' | 'linkedin') => {
+    setError('');
+    setLoading(true);
+    const res = await loginWithProvider(provider);
+    setLoading(false);
+    if (!res.success) {
+      setError(res.error || `Social login with ${provider} failed.`);
+    } else {
+      navigate('/dashboard', { replace: true });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -260,12 +272,12 @@ export default function Login() {
             {/* Social Buttons */}
             <div className="flex items-center justify-center gap-4 mb-5">
               {/* Facebook */}
-              <button type="button" title="Sign in with Facebook"
+              <button type="button" title="Sign in with Facebook" onClick={() => handleSocialLogin('facebook')}
                 className="w-11 h-11 rounded-full border-2 border-slate-200 hover:border-indigo-400 flex items-center justify-center text-slate-600 hover:text-indigo-600 transition-all font-bold text-sm">
                 f
               </button>
               {/* Google */}
-              <button type="button" title="Sign in with Google"
+              <button type="button" title="Sign in with Google" onClick={() => handleSocialLogin('google')}
                 className="w-11 h-11 rounded-full border-2 border-slate-200 hover:border-red-400 flex items-center justify-center font-bold text-sm transition-all">
                 <svg viewBox="0 0 24 24" className="w-5 h-5">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -275,7 +287,7 @@ export default function Login() {
                 </svg>
               </button>
               {/* LinkedIn */}
-              <button type="button" title="Sign in with LinkedIn"
+              <button type="button" title="Sign in with LinkedIn" onClick={() => handleSocialLogin('linkedin')}
                 className="w-11 h-11 rounded-full border-2 border-slate-200 hover:border-blue-500 flex items-center justify-center text-slate-600 hover:text-blue-600 transition-all font-bold text-xs">
                 in
               </button>
