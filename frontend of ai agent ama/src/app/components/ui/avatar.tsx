@@ -20,13 +20,13 @@ export function Avatar({ email, name, photoURL, className = '', size = 'md' }: A
 
   // Priority Logic:
   // 1. If email matches the logged-in user's email, prioritize user.photoURL from AuthContext
-  const isCurrentUser = email && user?.email && email.toLowerCase().trim() === user.email.toLowerCase().trim();
+  const isCurrentUser = email && user?.email && String(email).toLowerCase().trim() === String(user.email).toLowerCase().trim();
   const activePhotoURL = isCurrentUser ? (user?.photoURL || photoURL) : photoURL;
 
   // Derive initials
   const getInitials = () => {
     const displayName = isCurrentUser ? (user?.name || name || email || '') : (name || email || '');
-    const clean = displayName.trim();
+    const clean = String(displayName || '').trim();
     if (!clean) return 'R';
     const parts = clean.split(/\s+/).filter(Boolean);
     if (parts.length >= 2 && parts[0] && parts[0][0] && parts[1] && parts[1][0]) {
