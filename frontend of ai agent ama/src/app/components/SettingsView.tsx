@@ -555,6 +555,12 @@ export function SettingsView() {
                 { label: 'Email notifications', key: 'emailNotifications' },
                 { label: 'Push notifications', key: 'pushNotifications' },
                 { label: 'Daily summary', key: 'dailySummary' },
+                { label: 'Task reminders (Due Today)', key: 'taskReminders' },
+                { label: 'Overdue task alerts', key: 'overdueAlerts' },
+                { label: 'New email notifications', key: 'emailAlerts' },
+                { label: 'Calendar event reminders', key: 'calendarReminders' },
+                { label: 'Morning briefing notifications', key: 'morningBriefing' },
+                { label: 'Team task assignments', key: 'teamTaskAssignments' }
               ] as const).map(({ label, key }) => (
                 <div key={key} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-lg">
                   <span className="text-sm text-slate-700 dark:text-slate-200">{label}</span>

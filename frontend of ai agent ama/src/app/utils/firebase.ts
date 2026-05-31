@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getMessaging } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -28,6 +29,7 @@ export let app: any = null;
 export let auth: any = null;
 export let db: any = null;
 export let storage: any = null;
+export let messaging: any = null;
 
 if (isConfigValid) {
   try {
@@ -48,6 +50,15 @@ if (isConfigValid) {
 
     db = getFirestore(app);
     storage = getStorage(app);
+    
+    try {
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        messaging = getMessaging(app);
+      }
+    } catch (msgErr) {
+      console.warn('⚠️ Firebase messaging initialization failed:', msgErr);
+    }
+    
     console.log('✅ Firebase initialized (IndexedDB + LocalStorage persistence).');
   } catch (err) {
     console.error('❌ Firebase initialization failed:', err);

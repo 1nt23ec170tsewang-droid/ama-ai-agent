@@ -10,7 +10,8 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   FacebookAuthProvider,
-  OAuthProvider
+  OAuthProvider,
+  sendEmailVerification
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../utils/firebase';
@@ -278,6 +279,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const firebaseUser = userCredential.user;
+
+        // Send verification email immediately after registration
+        await sendEmailVerification(firebaseUser, {
+          url: 'https://ama-frontend-8efz.onrender.com/dashboard',
+          handleCodeInApp: false
+        });
 
         await updateProfile(firebaseUser, { displayName: name });
 

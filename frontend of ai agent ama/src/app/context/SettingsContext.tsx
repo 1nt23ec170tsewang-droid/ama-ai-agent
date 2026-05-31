@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { useAuth } from './AuthContext';
+import { API_BASE } from '../utils/config';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface ProfileData {
@@ -17,6 +19,12 @@ export interface NotificationSettings {
   emailNotifications: boolean;
   pushNotifications: boolean;
   dailySummary: boolean;
+  taskReminders: boolean;
+  overdueAlerts: boolean;
+  emailAlerts: boolean;
+  calendarReminders: boolean;
+  morningBriefing: boolean;
+  teamTaskAssignments: boolean;
 }
 
 export interface AISettings {
@@ -80,6 +88,8 @@ export function SettingsProvider({ children, userEmail, userName, userCompany, u
   userCompany?: string;
   userRole?: string;
 }) {
+  const { token } = useAuth();
+
   const [profile, setProfile] = useState<ProfileData>(() =>
     load('ama_profile', {
       name: userName || '',
@@ -97,6 +107,12 @@ export function SettingsProvider({ children, userEmail, userName, userCompany, u
       emailNotifications: true,
       pushNotifications: true,
       dailySummary: false,
+      taskReminders: true,
+      overdueAlerts: true,
+      emailAlerts: true,
+      calendarReminders: true,
+      morningBriefing: false,
+      teamTaskAssignments: true
     })
   );
 
@@ -177,13 +193,52 @@ export function SettingsProvider({ children, userEmail, userName, userCompany, u
     }
   }, [appearance.theme]);
 
+  // Sync notification settings from server when token becomes available
+  useEffect(() => {
+    if (!token) return;
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/user/settings`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.settings) {
+            setNotifications(prev => ({
+              ...prev,
+              ...data.settings
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load settings from server:', err);
+      }
+    };
+    fetchSettings();
+  }, [token]);
+
   // ── Updaters ─────────────────────────────────────────────────────────────────
   const updateProfile = useCallback((data: Partial<ProfileData>) => {
     setProfile(prev => ({ ...prev, ...data }));
   }, []);
   const updateNotifications = useCallback((data: Partial<NotificationSettings>) => {
-    setNotifications(prev => ({ ...prev, ...data }));
-  }, []);
+    setNotifications(prev => {
+      const updated = { ...prev, ...data };
+      if (token) {
+        fetch(`${API_BASE}/api/user/settings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ settings: updated })
+        }).catch(err => console.warn('Failed to sync settings with server:', err));
+      }
+      return updated;
+    });
+  }, [token]);
   const updateAISettings = useCallback((data: Partial<AISettings>) => {
     setAISettings(prev => ({ ...prev, ...data }));
   }, []);

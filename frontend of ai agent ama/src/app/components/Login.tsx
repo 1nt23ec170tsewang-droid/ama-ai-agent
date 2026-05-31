@@ -79,6 +79,23 @@ export default function Login() {
     }
   };
 
+  const getFirebaseErrorMessage = (code: string, fallback: string) => {
+    switch (code) {
+      case 'auth/user-not-found':
+        return 'No account found with this email.';
+      case 'auth/wrong-password':
+        return 'Incorrect password.';
+      case 'auth/invalid-credential':
+        return 'Invalid email or password.';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      case 'auth/email-not-verified':
+        return 'Please verify your email before logging in.';
+      default:
+        return fallback;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -98,7 +115,8 @@ export default function Login() {
       setIsVerifying(true);
     } else {
       setLoading(false);
-      setError(result.error || 'Invalid email or password');
+      const friendlyMsg = getFirebaseErrorMessage(result.error || '', result.error || 'Invalid email or password');
+      setError(friendlyMsg);
     }
   };
 

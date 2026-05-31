@@ -37,6 +37,8 @@ export function EmailManager() {
   const [emails, setEmails] = useState<GmailMessage[]>([]);
   const [selected, setSelected] = useState<GmailMessage | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all');
@@ -83,29 +85,44 @@ export function EmailManager() {
   }, []);
 
   // ── Fetch inbox ──────────────────────────────────────────────────────────
-  const fetchEmails = useCallback(async (email: string) => {
-    setLoading(true);
+  const fetchEmails = useCallback(async (email: string, pageToken?: string) => {
+    if (pageToken) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     try {
-      const res = await fetch(`${API}/api/gmail/messages?email=${encodeURIComponent(email)}&maxResults=25`, {
+      const url = `${API}/api/gmail/messages?email=${encodeURIComponent(email)}&maxResults=25${pageToken ? `&pageToken=${pageToken}` : ''}`;
+      const res = await fetch(url, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Fetch failed');
-      setEmails(data.emails || []);
-      if ((data.emails || []).length > 0) setSelected(data.emails[0]);
+      
+      if (pageToken) {
+        setEmails(prev => {
+          const existingIds = new Set(prev.map(e => e.id));
+          const filteredNew = (data.emails || []).filter((e: GmailMessage) => !existingIds.has(e.id));
+          return [...prev, ...filteredNew];
+        });
+      } else {
+        setEmails(data.emails || []);
+        if ((data.emails || []).length > 0) setSelected(data.emails[0]);
+      }
+      setNextPageToken(data.nextPageToken || null);
     } catch (err: any) {
-      // showToast(err.message || 'Could not fetch Gmail', 'error');
+      console.error('Fetch emails failed:', err.message);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [token]);
 
-  // ── Check connection status on mount ────────────────────────────────────
+  // ── Check connection status silently using the user's auth token on mount ──
   useEffect(() => {
-    if (!gmailEmail) return;
-    fetch(`${API}/api/gmail/status?email=${encodeURIComponent(gmailEmail)}`, {
+    fetch(`${API}/api/gmail/status`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
@@ -113,10 +130,51 @@ export function EmailManager() {
       .then(r => r.json())
       .then(d => {
         setConnected(d.connected);
-        if (d.connected) fetchEmails(gmailEmail);
+        if (d.connected && d.email) {
+          setGmailEmail(d.email);
+          localStorage.setItem('ama_gmail_email', d.email);
+          fetchEmails(d.email);
+        }
       })
       .catch(() => setConnected(false));
-  }, [gmailEmail, token, fetchEmails]);
+  }, [token, fetchEmails]);
+
+  // ── 5-Minute Silent Polling ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!connected || !gmailEmail) return;
+    const interval = setInterval(() => {
+      const silentFetch = async () => {
+        try {
+          const res = await fetch(`${API}/api/gmail/messages?email=${encodeURIComponent(gmailEmail)}&maxResults=25`, {
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            }
+          });
+          const data = await res.json();
+          if (res.ok && data.emails) {
+            setEmails(prev => {
+              const localMap = new Map(prev.map(e => [e.id, e]));
+              const merged = data.emails.map((e: GmailMessage) => {
+                const local = localMap.get(e.id);
+                if (local) {
+                   return { ...e, isRead: local.isRead, isStarred: local.isStarred };
+                }
+                return e;
+              });
+              const newIds = new Set(merged.map((e: GmailMessage) => e.id));
+              const rest = prev.filter(e => !newIds.has(e.id));
+              return [...merged, ...rest];
+            });
+            setNextPageToken(data.nextPageToken || null);
+          }
+        } catch (err) {
+          console.warn('Silent email refresh failed:', err);
+        }
+      };
+      silentFetch();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [connected, gmailEmail, token]);
 
   // ── Start Gmail OAuth ────────────────────────────────────────────────────
   const handleConnectGmail = () => {
@@ -124,23 +182,29 @@ export function EmailManager() {
     window.location.href = `${API}/auth/gmail`;
   };
 
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    try {
+      await fetch(`${API}/api/gmail/disconnect`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+    } catch (err) {
+      console.warn('Disconnect backend error:', err);
+    }
     localStorage.removeItem('ama_gmail_email');
     setGmailEmail(null);
     setConnected(false);
     setEmails([]);
     setSelected(null);
-    // showToast('Gmail disconnected', 'info');
+    setNextPageToken(null);
   };
-
 
   const handleSync = async () => {
     if (!gmailEmail || !connected) return;
     setSyncing(true);
-    // const toastId = showToast('Syncing Gmail…', 'loading');
     await fetchEmails(gmailEmail);
-    // removeToast(toastId);
-    // showToast('Inbox synced!', 'success');
     setSyncing(false);
   };
 
@@ -422,6 +486,18 @@ export function EmailManager() {
                 </div>
               </div>
             ))
+          )}
+          {nextPageToken && (
+            <div className="p-4 text-center border-t border-slate-100">
+              <button
+                onClick={() => fetchEmails(gmailEmail!, nextPageToken)}
+                disabled={loadingMore}
+                className="w-full py-2.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              >
+                {loadingMore && <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500" />}
+                Load More
+              </button>
+            </div>
           )}
         </div>
       </div>

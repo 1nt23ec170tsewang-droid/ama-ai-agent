@@ -12,6 +12,7 @@ const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const { rateLimit } = require('express-rate-limit');
 const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
 // ──────────────────────────────────────────
 // RESEND EMAIL CLIENT
@@ -19,14 +20,36 @@ const { Resend } = require('resend');
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const sendVerificationEmail = async (email, code) => {
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS
+        }
+      });
+      await transporter.sendMail({
+        from: `"Ryve" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: 'Verify your Ryve account',
+        html: `<strong>Your 6-digit verification code is: ${code}</strong>`
+      });
+      console.log('✅ Verification email sent via Nodemailer to:', email);
+      return;
+    } catch (nodemailerErr) {
+      console.error('❌ Nodemailer failed to send email:', nodemailerErr);
+    }
+  }
+
   if (!resend) {
     console.warn('⚠️ Resend API key not configured — skipping verification email');
     return;
   }
   const { data, error } = await resend.emails.send({
-    from: 'onboarding@resend.dev',
+    from: 'Ryve <onboarding@resend.dev>',
     to: email,
-    subject: 'Verification Code for Ryve',
+    subject: 'Verify your Ryve account',
     html: `<strong>Your 6-digit verification code is: ${code}</strong>`
   });
 
@@ -37,6 +60,7 @@ const sendVerificationEmail = async (email, code) => {
 
   console.log('✅ Email sent successfully to:', email, '| ID:', data?.id);
 };
+
 
 
 // ──────────────────────────────────────────
@@ -427,21 +451,43 @@ const checkDocOwnership = (collectionName, userIdField = 'userId') => {
 // ──────────────────────────────────────────
 // EMAIL OWNERSHIP GATING FOR EXTERNAL APIS (GMAIL/CALENDAR)
 // ──────────────────────────────────────────
-const requireEmailOwnership = (req, res, next) => {
+const requireEmailOwnership = async (req, res, next) => {
   const email = req.query.email || req.body.email;
   if (!email) {
     return res.status(400).json({ message: 'Email parameter is required.' });
   }
-  if (String(email).toLowerCase() !== req.user.email.toLowerCase()) {
-    logStructured('SECURITY', 'UNAUTHORIZED_EMAIL_ACCESS_ATTEMPT', {
-      ip: req.ip,
-      userId: req.user.id,
-      requestedEmail: email,
-      userEmail: req.user.email
-    });
-    return res.status(403).json({ message: 'Access Denied: You do not own this connected email account.' });
+  
+  if (String(email).toLowerCase() === req.user.email.toLowerCase()) {
+    return next();
   }
-  next();
+
+  // Also check if this email is the connected Gmail email for this user
+  try {
+    if (db) {
+      const userDoc = await db.collection('users').doc(req.user.id).get();
+      if (userDoc.exists) {
+        const gmail = userDoc.data().gmail;
+        if (gmail && String(email).toLowerCase() === String(gmail.connectedEmail).toLowerCase()) {
+          return next();
+        }
+      }
+    } else {
+      const foundUser = inMemoryUsers.find(u => u.id === req.user.id);
+      if (foundUser && foundUser.gmail && String(email).toLowerCase() === String(foundUser.gmail.connectedEmail).toLowerCase()) {
+        return next();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to verify connected email in requireEmailOwnership:', err.message);
+  }
+
+  logStructured('SECURITY', 'UNAUTHORIZED_EMAIL_ACCESS_ATTEMPT', {
+    ip: req.ip,
+    userId: req.user.id,
+    requestedEmail: email,
+    userEmail: req.user.email
+  });
+  return res.status(403).json({ message: 'Access Denied: You do not own this connected email account.' });
 };
 
 
@@ -565,18 +611,68 @@ app.post('/api/auth/register', async (req, res, next) => {
 
     logStructured('INFO', 'USER_REGISTERED', { userId: userData.id, email, role });
 
-    // Send transactional verification email via Resend (with fail-safe fallback)
+    // Send transactional verification email (with fail-safe fallback)
     try {
       await sendVerificationEmail(email, verificationCode);
       logStructured('INFO', 'EMAIL_VERIFICATION_SENT_SUCCESS', { email });
     } catch (emailErr) {
-      console.error('❌ Failed to send verification email via Resend:', emailErr.message);
+      console.error('❌ Failed to send verification email:', emailErr.message);
       console.log('📋 FALLBACK — NEW VERIFICATION CODE:', verificationCode);
     }
 
+    // Generate JWT access & refresh tokens (RTR)
+    const accessToken = jwt.sign(
+      { id: userData.id, email: userData.email, name: userData.name, company: userData.company, role: userData.role },
+      SECRET_KEY,
+      { expiresIn: '15m', algorithm: 'HS256' }
+    );
+
+    const refreshToken = jwt.sign(
+      { id: userData.id, email: userData.email },
+      REFRESH_SECRET_KEY,
+      { expiresIn: '7d', algorithm: 'HS256' }
+    );
+
+    const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    if (db) {
+      await db.collection('refresh_tokens').doc(refreshTokenHash).set({
+        userId: userData.id,
+        expiresAt,
+        rotated: false,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      inMemoryRefreshTokens.push({
+        tokenHash: refreshTokenHash,
+        userId: userData.id,
+        expiresAt,
+        rotated: false
+      });
+    }
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      path: '/api/auth/refresh',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
     res.status(201).json({ 
       message: 'Registration successful. A 6-digit verification code has been sent to your email.',
-      email
+      token: accessToken,
+      refreshToken: refreshToken,
+      user: {
+        id: userData.id,
+        name: userData.name,
+        email: userData.email,
+        company: userData.company,
+        role: userData.role,
+        isEmailVerified: userData.isEmailVerified,
+        emailVerified: userData.isEmailVerified
+      }
     });
   } catch (error) {
     next(error);
@@ -609,15 +705,9 @@ app.post('/api/auth/login', async (req, res, next) => {
       return res.status(400).json({ message: 'Incorrect email or password.' });
     }
 
-    // Intercept if email is unverified
-    if (!foundUser.isEmailVerified) {
-      logStructured('SECURITY', 'LOGIN_BLOCKED_EMAIL_UNVERIFIED', { ip: req.ip, email, userId: foundUser.id });
-      return res.status(403).json({ 
-        message: 'Your email address is not verified. Please verify your email first.',
-        unverified: true,
-        email
-      });
-    }
+    // No longer blocking login for unverified emails!
+    // We allow standard log in and will return the verification status to the frontend.
+
 
     // Update last login
     if (db) {
@@ -672,7 +762,15 @@ app.post('/api/auth/login', async (req, res, next) => {
     res.status(200).json({
       message: 'Login successful',
       token: accessToken,
-      user: { id: foundUser.id, name: foundUser.name, email: foundUser.email, company: foundUser.company, role: foundUser.role }
+      user: {
+        id: foundUser.id,
+        name: foundUser.name,
+        email: foundUser.email,
+        company: foundUser.company,
+        role: foundUser.role,
+        isEmailVerified: foundUser.isEmailVerified,
+        emailVerified: foundUser.isEmailVerified
+      }
     });
   } catch (error) {
     next(error);
@@ -1482,6 +1580,80 @@ app.put('/api/auth/profile', authenticateToken, async (req, res, next) => {
   }
 });
 
+// GET /api/user/settings
+app.get('/api/user/settings', authenticateToken, async (req, res, next) => {
+  try {
+    let settings = {
+      taskReminders: true,
+      overdueAlerts: true,
+      emailAlerts: true,
+      calendarReminders: true,
+      morningBriefing: false,
+      teamTaskAssignments: true
+    };
+    if (db) {
+      const snap = await db.collection('users').doc(req.user.id).get();
+      if (snap.exists && snap.data().notificationPreferences) {
+        settings = { ...settings, ...snap.data().notificationPreferences };
+      }
+    } else {
+      const uMatch = inMemoryUsers.find(u => u.id === req.user.id);
+      if (uMatch && uMatch.notificationPreferences) {
+        settings = { ...settings, ...uMatch.notificationPreferences };
+      }
+    }
+    res.json({ settings });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/user/settings
+app.post('/api/user/settings', authenticateToken, async (req, res, next) => {
+  try {
+    const { settings } = req.body;
+    if (!settings) return res.status(400).json({ message: 'Settings are required.' });
+    const notificationPreferences = {
+      emailNotifications: !!settings.emailNotifications,
+      pushNotifications: !!settings.pushNotifications,
+      dailySummary: !!settings.dailySummary,
+      taskReminders: settings.taskReminders !== false,
+      overdueAlerts: settings.overdueAlerts !== false,
+      emailAlerts: settings.emailAlerts !== false,
+      calendarReminders: settings.calendarReminders !== false,
+      morningBriefing: !!settings.morningBriefing,
+      teamTaskAssignments: settings.teamTaskAssignments !== false
+    };
+    if (db) {
+      await db.collection('users').doc(req.user.id).set({ notificationPreferences }, { merge: true });
+    } else {
+      const found = inMemoryUsers.find(u => u.id === req.user.id);
+      if (found) found.notificationPreferences = notificationPreferences;
+    }
+    res.json({ success: true, settings: notificationPreferences });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/user/register-fcm
+app.post('/api/user/register-fcm', authenticateToken, async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ message: 'Token is required.' });
+    if (db) {
+      await db.collection('users').doc(req.user.id).update({ fcmToken: token });
+    } else {
+      const found = inMemoryUsers.find(u => u.id === req.user.id);
+      if (found) found.fcmToken = token;
+    }
+    console.log(`✅ Registered FCM token for user ${req.user.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ══════════════════════════════════════════
 // GEMINI AI ROUTES
 // ══════════════════════════════════════════
@@ -1879,12 +2051,24 @@ app.post('/api/ama/send-email', optionalAuth, async (req, res, next) => {
       return res.status(400).json({ message: 'gmailEmail, to, subject, and body are required.' });
     }
 
-    const stored = gmailTokenStore.get(String(gmailEmail));
-    if (!stored) {
-      return res.status(401).json({ message: 'Gmail not connected. Please connect your Gmail account first.' });
+    let auth;
+    try {
+      if (req.user && req.user.id !== 'guest') {
+        auth = await getOAuthClientForUser(req.user.id);
+      } else {
+        const stored = gmailTokenStore.get(String(gmailEmail));
+        if (!stored) {
+          return res.status(401).json({ message: 'Gmail not connected. Please connect your Gmail account first.' });
+        }
+        auth = makeOAuth2(stored.tokens);
+      }
+    } catch (authErr) {
+      const stored = gmailTokenStore.get(String(gmailEmail));
+      if (!stored) {
+        return res.status(401).json({ message: 'Gmail not connected. Please connect your Gmail account first.' });
+      }
+      auth = makeOAuth2(stored.tokens);
     }
-
-    const auth = makeOAuth2(stored.tokens);
     const raw = Buffer.from(
       `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
     ).toString('base64url');
@@ -2319,10 +2503,52 @@ function makeOAuth2(tokens) {
   return c;
 }
 
+async function getOAuthClientForUser(uid) {
+  if (!db) {
+    const foundUser = inMemoryUsers.find(u => u.id === uid);
+    if (!foundUser || !foundUser.gmail) throw new Error('Gmail integration not connected.');
+    const { accessToken, refreshToken, expiryDate } = foundUser.gmail;
+    const tokens = { access_token: accessToken, refresh_token: refreshToken, expiry_date: expiryDate };
+    const oauth2 = makeOAuth2(tokens);
+    if (Date.now() >= expiryDate - 60000) {
+      try {
+        const { credentials } = await oauth2.refreshAccessToken();
+        foundUser.gmail.accessToken = credentials.access_token;
+        foundUser.gmail.expiryDate = credentials.expiry_date;
+        oauth2.setCredentials(credentials);
+      } catch (err) {
+        console.error('Failed to silently refresh Google access token in-memory:', err.message);
+      }
+    }
+    return oauth2;
+  }
+
+  const userDoc = await db.collection('users').doc(uid).get();
+  if (!userDoc.exists || !userDoc.data().gmail) throw new Error('Gmail integration not connected.');
+  const { accessToken, refreshToken, expiryDate } = userDoc.data().gmail;
+  const tokens = { access_token: accessToken, refresh_token: refreshToken, expiry_date: expiryDate };
+  const oauth2 = makeOAuth2(tokens);
+  if (Date.now() >= expiryDate - 60000) {
+    try {
+      const { credentials } = await oauth2.refreshAccessToken();
+      await db.collection('users').doc(uid).update({
+        'gmail.accessToken': credentials.access_token,
+        'gmail.expiryDate': credentials.expiry_date
+      });
+      oauth2.setCredentials(credentials);
+    } catch (err) {
+      console.error('Failed to silently refresh Google access token in Firestore:', err.message);
+    }
+  }
+  return oauth2;
+}
+
+
 // GET /auth/gmail  — public endpoint to initiate Google OAuth consent flow directly
 app.get('/auth/gmail', (req, res, next) => {
   try {
-    const state = Math.random().toString(36).slice(2);
+    const uid = req.query.uid || '';
+    const state = uid ? uid : Math.random().toString(36).slice(2);
     const url = makeOAuth2().generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
@@ -2344,7 +2570,7 @@ app.get('/auth/gmail', (req, res, next) => {
 
 // GET /auth/gmail/callback  — public endpoint where Google redirects after consent approval
 app.get('/auth/gmail/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
   if (!code) return res.status(400).send('Missing code');
   try {
     const oauth2 = makeOAuth2();
@@ -2353,10 +2579,46 @@ app.get('/auth/gmail/callback', async (req, res) => {
     const { data } = await google.oauth2({ version: 'v2', auth: oauth2 }).userinfo.get();
     gmailTokenStore.set(data.email, { tokens, email: data.email });
     console.log('✅ Gmail connected for:', data.email);
+
+    const uid = state;
+    if (db && uid && uid.length > 5) {
+      // Look up existing tokens to preserve refresh token if missing
+      let existingRefreshToken = tokens.refresh_token;
+      if (!existingRefreshToken) {
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (userDoc.exists) {
+          existingRefreshToken = userDoc.data()?.gmail?.refreshToken;
+        }
+      }
+
+      await db.collection('users').doc(uid).set({
+        gmail: {
+          accessToken: tokens.access_token,
+          refreshToken: existingRefreshToken || '',
+          expiryDate: tokens.expiry_date,
+          connectedEmail: data.email,
+          connectedAt: new Date().toISOString()
+        }
+      }, { merge: true }).catch(err => console.error('Failed to persist Gmail tokens under user:', err.message));
+    } else {
+      // In-memory fallback
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) {
+        foundUser.gmail = {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token || foundUser.gmail?.refreshToken || '',
+          expiryDate: tokens.expiry_date,
+          connectedEmail: data.email,
+          connectedAt: new Date().toISOString()
+        };
+      }
+    }
+
     if (db) {
       db.collection('gmail_tokens').doc(data.email).set({ email: data.email, tokens, updatedAt: new Date().toISOString() })
-        .catch(err => console.error('Failed to persist Gmail token:', err.message));
+        .catch(err => console.error('Failed to persist Gmail token in legacy table:', err.message));
     }
+
     res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_connected=${encodeURIComponent(data.email)}`);
   } catch (err) {
     console.error('Gmail callback error:', err.message);
@@ -2368,7 +2630,8 @@ app.get('/auth/gmail/callback', async (req, res) => {
 app.get('/api/gmail/auth', optionalAuth, (req, res, next) => {
   try {
     const login_hint = req.user?.email;
-    const state = Math.random().toString(36).slice(2);
+    const uid = req.user?.id || '';
+    const state = uid ? uid : Math.random().toString(36).slice(2);
     const url = makeOAuth2().generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
@@ -2391,7 +2654,7 @@ app.get('/api/gmail/auth', optionalAuth, (req, res, next) => {
 
 // GET /api/gmail/callback  — Google redirects here after user approves (legacy api fallback support)
 app.get('/api/gmail/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
   if (!code) return res.status(400).send('Missing code');
   try {
     const oauth2 = makeOAuth2();
@@ -2400,10 +2663,44 @@ app.get('/api/gmail/callback', async (req, res) => {
     const { data } = await google.oauth2({ version: 'v2', auth: oauth2 }).userinfo.get();
     gmailTokenStore.set(data.email, { tokens, email: data.email });
     console.log('✅ Gmail connected for:', data.email);
-    // Persist tokens to Firestore so they survive server restarts
+
+    const uid = state;
+    if (db && uid && uid.length > 5) {
+      // Look up existing tokens to preserve refresh token if missing
+      let existingRefreshToken = tokens.refresh_token;
+      if (!existingRefreshToken) {
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (userDoc.exists) {
+          existingRefreshToken = userDoc.data()?.gmail?.refreshToken;
+        }
+      }
+
+      await db.collection('users').doc(uid).set({
+        gmail: {
+          accessToken: tokens.access_token,
+          refreshToken: existingRefreshToken || '',
+          expiryDate: tokens.expiry_date,
+          connectedEmail: data.email,
+          connectedAt: new Date().toISOString()
+        }
+      }, { merge: true }).catch(err => console.error('Failed to persist Gmail tokens under user in legacy API callback:', err.message));
+    } else {
+      // In-memory fallback
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) {
+        foundUser.gmail = {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token || foundUser.gmail?.refreshToken || '',
+          expiryDate: tokens.expiry_date,
+          connectedEmail: data.email,
+          connectedAt: new Date().toISOString()
+        };
+      }
+    }
+
     if (db) {
       db.collection('gmail_tokens').doc(data.email).set({ email: data.email, tokens, updatedAt: new Date().toISOString() })
-        .catch(err => console.error('Failed to persist Gmail token:', err.message));
+        .catch(err => console.error('Failed to persist Gmail token in legacy table:', err.message));
     }
     res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_connected=${encodeURIComponent(data.email)}`);
   } catch (err) {
@@ -2414,9 +2711,75 @@ app.get('/api/gmail/callback', async (req, res) => {
 
 
 // GET /api/gmail/status?email=...
-app.get('/api/gmail/status', authenticateToken, requireEmailOwnership, (req, res) => {
-  const connected = req.query.email ? gmailTokenStore.has(String(req.query.email)) : false;
-  res.json({ connected });
+app.get('/api/gmail/status', authenticateToken, async (req, res) => {
+  try {
+    let gmail = null;
+    if (db) {
+      const userDoc = await db.collection('users').doc(req.user.id).get();
+      if (userDoc.exists) gmail = userDoc.data().gmail;
+    } else {
+      const foundUser = inMemoryUsers.find(u => u.id === req.user.id);
+      if (foundUser) gmail = foundUser.gmail;
+    }
+
+    const emailParam = req.query.email;
+    if (emailParam) {
+      const connected = (gmail && gmail.refreshToken && String(gmail.connectedEmail).toLowerCase() === String(emailParam).toLowerCase()) || gmailTokenStore.has(String(emailParam));
+      return res.json({ connected });
+    }
+
+    if (gmail && gmail.refreshToken) {
+      return res.json({ connected: true, email: gmail.connectedEmail });
+    }
+    
+    // Legacy fallback check using user email
+    const legacyConnected = gmailTokenStore.has(req.user.email);
+    if (legacyConnected) {
+      return res.json({ connected: true, email: req.user.email });
+    }
+
+    return res.json({ connected: false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/gmail/disconnect  — disconnects and revokes user Gmail tokens
+app.post('/api/gmail/disconnect', authenticateToken, async (req, res, next) => {
+  try {
+    const uid = req.user.id;
+    let gmail = null;
+    
+    if (db) {
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) gmail = userDoc.data().gmail;
+    } else {
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) gmail = foundUser.gmail;
+    }
+
+    if (gmail && gmail.accessToken) {
+      try {
+        const oauth2 = makeOAuth2();
+        await oauth2.revokeToken(gmail.accessToken);
+      } catch (revokeErr) {
+        console.warn('⚠️ Token revocation warning (might already be revoked):', revokeErr.message);
+      }
+    }
+
+    if (db) {
+      await db.collection('users').doc(uid).update({
+        gmail: admin.firestore.FieldValue.delete()
+      }).catch(() => {});
+    } else {
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) delete foundUser.gmail;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Helper: parse a raw Gmail message into our Email shape
@@ -2489,20 +2852,71 @@ function parseGmailMessage(msg) {
   };
 }
 
-// GET /api/gmail/messages?email=...&maxResults=20
-app.get('/api/gmail/messages', authenticateToken, requireEmailOwnership, async (req, res, next) => {
-  const { email, maxResults = 20 } = req.query;
-  const stored = gmailTokenStore.get(String(email));
-  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+// GET /api/gmail/messages
+app.get('/api/gmail/messages', authenticateToken, async (req, res, next) => {
+  const { maxResults = 50, pageToken } = req.query;
 
   try {
-    const auth   = makeOAuth2(stored.tokens);
-    const gmail  = google.gmail({ version: 'v1', auth });
-    const list   = await gmail.users.messages.list({ userId: 'me', labelIds: ['INBOX'], maxResults: Number(maxResults) });
-    const ids    = (list.data.messages || []).map(m => m.id);
-    if (!ids.length) return res.json({ emails: [] });
-    const raw    = await Promise.all(ids.map(id => gmail.users.messages.get({ userId: 'me', id, format: 'full' }).then(r => r.data)));
-    res.json({ emails: raw.map(parseGmailMessage) });
+    const auth = await getOAuthClientForUser(req.user.id);
+    const gmail = google.gmail({ version: 'v1', auth });
+    
+    // Fetch only Primary category emails (q=category:primary)
+    const list = await gmail.users.messages.list({
+      userId: 'me',
+      labelIds: ['INBOX'],
+      q: 'category:primary',
+      maxResults: Number(maxResults),
+      ...(pageToken && { pageToken })
+    });
+    
+    const ids = (list.data.messages || []).map(m => m.id);
+    const nextPageToken = list.data.nextPageToken || null;
+    
+    if (!ids.length) {
+      return res.json({ emails: [], nextPageToken });
+    }
+    
+    const raw = await Promise.all(ids.map(id => 
+      gmail.users.messages.get({ userId: 'me', id, format: 'full' })
+        .then(r => r.data)
+    ));
+    
+    const emails = raw.map(parseGmailMessage);
+    
+    // Store emails in Firestore for offline access!
+    if (db) {
+      try {
+        const batch = db.batch();
+        emails.forEach(email => {
+          const ref = db.collection('users').doc(req.user.id).collection('emails').doc(email.id);
+          batch.set(ref, email, { merge: true });
+        });
+        await batch.commit();
+      } catch (cacheErr) {
+        console.error('Failed to cache emails to Firestore:', cacheErr.message);
+      }
+    }
+    
+    // Send FCM notification for any new unread email received!
+    if (db) {
+      try {
+        for (const email of emails) {
+          if (!email.isRead) {
+            // Check if we already have it in the cache
+            const ref = db.collection('users').doc(req.user.id).collection('emails').doc(email.id);
+            const cachedDoc = await ref.get();
+            if (!cachedDoc.exists) {
+              // This is a brand new email!
+              await sendNotification(req.user.id, 'New Email', `From ${email.from}: ${email.subject}`, `/dashboard?tab=email`);
+            }
+          }
+        }
+      } catch (notifErr) {
+        console.error('Failed to check or send email notification:', notifErr.message);
+      }
+    }
+    
+    res.json({ emails, nextPageToken });
   } catch (err) {
     next(err);
   }
@@ -2510,11 +2924,9 @@ app.get('/api/gmail/messages', authenticateToken, requireEmailOwnership, async (
 
 // POST /api/gmail/archive  { email, messageId }
 app.post('/api/gmail/archive', authenticateToken, requireEmailOwnership, async (req, res, next) => {
-  const { email, messageId } = req.body;
-  const stored = gmailTokenStore.get(email);
-  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+  const { messageId } = req.body;
   try {
-    const auth = makeOAuth2(stored.tokens);
+    const auth = await getOAuthClientForUser(req.user.id);
     await google.gmail({ version: 'v1', auth }).users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['INBOX'] } });
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -2522,11 +2934,9 @@ app.post('/api/gmail/archive', authenticateToken, requireEmailOwnership, async (
 
 // POST /api/gmail/read  { email, messageId }
 app.post('/api/gmail/read', authenticateToken, requireEmailOwnership, async (req, res, next) => {
-  const { email, messageId } = req.body;
-  const stored = gmailTokenStore.get(email);
-  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+  const { messageId } = req.body;
   try {
-    const auth = makeOAuth2(stored.tokens);
+    const auth = await getOAuthClientForUser(req.user.id);
     await google.gmail({ version: 'v1', auth }).users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['UNREAD'] } });
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -2534,11 +2944,9 @@ app.post('/api/gmail/read', authenticateToken, requireEmailOwnership, async (req
 
 // POST /api/gmail/send  { email, to, subject, body, threadId }
 app.post('/api/gmail/send', authenticateToken, requireEmailOwnership, async (req, res, next) => {
-  const { email, to, subject, body, threadId } = req.body;
-  const stored = gmailTokenStore.get(email);
-  if (!stored) return res.status(401).json({ message: 'Gmail not connected' });
+  const { to, subject, body, threadId } = req.body;
   try {
-    const auth = makeOAuth2(stored.tokens);
+    const auth = await getOAuthClientForUser(req.user.id);
     const raw  = Buffer.from(`To: ${to}\r\nSubject: Re: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`).toString('base64url');
     await google.gmail({ version: 'v1', auth }).users.messages.send({ userId: 'me', requestBody: { raw, ...(threadId ? { threadId } : {}) } });
     res.json({ success: true });
@@ -2551,12 +2959,10 @@ app.post('/api/gmail/send', authenticateToken, requireEmailOwnership, async (req
 
 // GET /api/calendar/events?email=...
 app.get('/api/calendar/events', authenticateToken, requireEmailOwnership, async (req, res, next) => {
-  const { email, timeMin, timeMax } = req.query;
-  const stored = gmailTokenStore.get(String(email));
-  if (!stored) return res.status(401).json({ message: 'Google account not connected' });
+  const { timeMin, timeMax } = req.query;
 
   try {
-    const auth = makeOAuth2(stored.tokens);
+    const auth = await getOAuthClientForUser(req.user.id);
     const calendar = google.calendar({ version: 'v3', auth });
     
     // Default to a 30-day window if not provided
@@ -2607,12 +3013,10 @@ app.get('/api/calendar/events', authenticateToken, requireEmailOwnership, async 
 
 // POST /api/calendar/events
 app.post('/api/calendar/events', authenticateToken, requireEmailOwnership, async (req, res, next) => {
-  const { email, title, date, time, duration } = req.body;
-  const stored = gmailTokenStore.get(String(email));
-  if (!stored) return res.status(401).json({ message: 'Google account not connected' });
+  const { title, date, time, duration } = req.body;
 
   try {
-    const auth = makeOAuth2(stored.tokens);
+    const auth = await getOAuthClientForUser(req.user.id);
     const calendar = google.calendar({ version: 'v3', auth });
 
     // Very basic parsing for demo: assuming 'time' is "9:00 AM" and date is "YYYY-MM-DD"
@@ -2668,6 +3072,171 @@ app.use((err, req, res, next) => {
     status: 'error'
   });
 });
+
+// ──────────────────────────────────────────
+// FCM NOTIFICATION HELPER
+// ──────────────────────────────────────────
+async function sendNotification(uid, title, body, clickAction = '/dashboard', type = 'emailAlerts') {
+  if (!db) {
+    console.log(`[Notification Fallback] User: ${uid} | Title: ${title} | Body: ${body}`);
+    return;
+  }
+  try {
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) return;
+    const userData = userDoc.data();
+    
+    // Check notification preference for this type
+    const prefs = userData.notificationPreferences || {
+      taskReminders: true,
+      overdueAlerts: true,
+      emailAlerts: true,
+      calendarReminders: true,
+      morningBriefing: false,
+      teamTaskAssignments: true
+    };
+    
+    if (prefs[type] === false) {
+      console.log(`✉️ Notification skipped: User ${uid} disabled type "${type}"`);
+      return;
+    }
+    
+    const fcmToken = userData.fcmToken;
+    if (!fcmToken) {
+      console.log(`✉️ Notification skipped: No FCM token registered for user ${uid}`);
+      return;
+    }
+    
+    const message = {
+      token: fcmToken,
+      notification: {
+        title,
+        body
+      },
+      data: {
+        clickAction,
+        title,
+        body
+      },
+      webpush: {
+        fcmOptions: {
+          link: clickAction
+        }
+      }
+    };
+    
+    await admin.messaging().send(message);
+    console.log(`🚀 FCM push notification sent to user ${uid}: "${title}"`);
+    
+    // Save to user's notifications collection history
+    await db.collection('users').doc(uid).collection('notifications').add({
+      title,
+      body,
+      clickAction,
+      type,
+      sentAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('❌ Failed to send FCM notification:', err.message);
+  }
+}
+
+// ──────────────────────────────────────────
+// PERIODIC CHECKER RUNNER (Every 10 mins)
+// ──────────────────────────────────────────
+async function runPeriodicNotificationChecks() {
+  if (!db) return;
+  console.log('⏰ Running periodic notification checks...');
+  
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // 1. Tasks Checks (Due Today & Overdue)
+    const tasksSnap = await db.collection('tasks').get();
+    for (const doc of tasksSnap.docs) {
+      const task = doc.data();
+      if (task.completed) continue;
+      
+      const userId = task.userId;
+      if (!userId) continue;
+      
+      const taskId = doc.id;
+      const dueDate = task.dueDate;
+      if (!dueDate) continue;
+      
+      const taskDueStr = dueDate.split('T')[0];
+      
+      if (taskDueStr === todayStr) {
+        // Due Today!
+        const alertKey = `${userId}_${taskId}_taskReminders`;
+        const alertRef = db.collection('sent_alerts').doc(alertKey);
+        const alertDoc = await alertRef.get();
+        if (!alertDoc.exists) {
+          await alertRef.set({ sentAt: now.toISOString() });
+          await sendNotification(
+            userId,
+            'Task Due Today',
+            `"${task.title}" is due today.`,
+            '/dashboard?tab=tasks',
+            'taskReminders'
+          );
+        }
+      } else if (new Date(taskDueStr) < new Date(todayStr)) {
+        // Overdue!
+        const alertKey = `${userId}_${taskId}_overdueAlerts`;
+        const alertRef = db.collection('sent_alerts').doc(alertKey);
+        const alertDoc = await alertRef.get();
+        if (!alertDoc.exists) {
+          await alertRef.set({ sentAt: now.toISOString() });
+          await sendNotification(
+            userId,
+            'Overdue Task Alert',
+            `"${task.title}" is overdue!`,
+            '/dashboard?tab=tasks',
+            'overdueAlerts'
+          );
+        }
+      }
+    }
+    
+    // 2. Calendar Event Checks (Starting in 30 minutes)
+    const eventsSnap = await db.collection('events').get();
+    for (const doc of eventsSnap.docs) {
+      const event = doc.data();
+      const userId = event.userId;
+      if (!userId || !event.startTime) continue;
+      
+      const eventId = doc.id;
+      const startTime = new Date(event.startTime);
+      const diffMs = startTime.getTime() - now.getTime();
+      const diffMins = diffMs / 60000;
+      
+      if (diffMins > 0 && diffMins <= 30) {
+        const alertKey = `${userId}_${eventId}_calendarReminders`;
+        const alertRef = db.collection('sent_alerts').doc(alertKey);
+        const alertDoc = await alertRef.get();
+        if (!alertDoc.exists) {
+          await alertRef.set({ sentAt: now.toISOString() });
+          await sendNotification(
+            userId,
+            'Upcoming Event Reminder',
+            `"${event.title}" starts in ${Math.round(diffMins)} minutes!`,
+            '/dashboard?tab=calendar',
+            'calendarReminders'
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('❌ Error running periodic checks:', err.message);
+  }
+}
+
+// Start background interval (every 10 minutes)
+setInterval(runPeriodicNotificationChecks, 10 * 60 * 1000);
+// Trigger initial run after 30 seconds
+setTimeout(runPeriodicNotificationChecks, 30000);
 
 app.listen(PORT, () => {
   console.log(`\n🚀 Ama Backend running at http://localhost:${PORT}`);

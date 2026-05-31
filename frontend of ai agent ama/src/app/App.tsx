@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ShieldCheck, ArrowLeft } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { TasksView } from './components/TasksView';
@@ -16,6 +17,10 @@ import { QuickAskWidget } from './components/QuickAskWidget';
 import RyveLogo from './components/RyveLogo';
 import BottomNavBar from './components/BottomNavBar';
 import MoreBottomSheet from './components/MoreBottomSheet';
+import { messaging } from './utils/firebase';
+import { getToken, onMessage } from 'firebase/messaging';
+import { API_BASE } from './utils/config';
+import { useToast } from './context/ToastContext';
 
 const getInitials = (name: string) => {
   if (!name) return 'U';
@@ -23,12 +28,87 @@ const getInitials = (name: string) => {
 };
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, token, verifyEmail, resendVerification } = useAuth();
+  const { showToast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState('briefing');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // Register push notifications & listen for foreground notifications
+  useEffect(() => {
+    if (!user || !token || !messaging) return;
+
+    const registerPush = async () => {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          // Standard VAPID key placeholder or client parameter
+          const fcmToken = await getToken(messaging, {
+            vapidKey: 'BFd9-Jv8-aQ5_gT9sC_6OOpFk9Yp9vP7sV4_h3u7f6D8r_Y8zC5n_xT9mS8q8b5_d9_Jv8_aQ5_gT9sC_6OO'
+          });
+
+          if (fcmToken) {
+            await fetch(`${API_BASE}/api/user/register-fcm`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ token: fcmToken })
+            });
+            console.log('✅ FCM push token registered successfully:', fcmToken);
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not register FCM push notifications:', err);
+      }
+    };
+
+    registerPush();
+
+    const unsubscribe = onMessage(messaging, (payload) => {
+      console.log('🚀 Foreground FCM message received:', payload);
+      const title = payload.notification?.title || payload.data?.title || 'Ryve Notification';
+      const body = payload.notification?.body || payload.data?.body || '';
+      showToast(`${title}: ${body}`, 'info');
+    });
+
+    return () => unsubscribe();
+  }, [user, token, showToast]);
+
+  // Email verification dialog states
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [verificationLoading, setVerificationLoading] = useState(false);
+
+  const handleVerificationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVerificationError('');
+    setVerificationLoading(true);
+    if (verificationCode.length !== 6) {
+      setVerificationError('Verification code must be exactly 6 digits.');
+      setVerificationLoading(false);
+      return;
+    }
+    const result = await verifyEmail(pendingEmail || user?.email || '', verificationCode);
+    if (result.success) {
+      setVerificationLoading(false);
+      setIsVerifying(false);
+      setVerificationCode('');
+      if (user) {
+        (user as any).emailVerified = true;
+      }
+      alert('Email successfully verified!');
+      window.location.reload();
+    } else {
+      setVerificationLoading(false);
+      setVerificationError(result.error || 'Invalid or expired verification code.');
+    }
+  };
 
   // Auto-switch based on tab query param or Gmail OAuth redirects
   useEffect(() => {
@@ -98,6 +178,37 @@ export default function App() {
 
           {/* Main content */}
           <main className="flex-1 w-full flex flex-col overflow-hidden">
+            {user && (user as any).emailVerified === false && (
+              <div className="bg-amber-500 text-white px-4 py-2.5 text-xs sm:text-sm flex flex-col sm:flex-row items-center justify-between font-medium flex-shrink-0 gap-2 border-b border-amber-600/20">
+                <span className="text-center sm:text-left">
+                  ⚠️ Your email is not verified. Some features may be limited. Please check your inbox, spam, and promotions folders.
+                </span>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button 
+                    onClick={async () => {
+                      const res = await resendVerification(user.email);
+                      if (res.success) {
+                        alert('Verification email resent! Please check your spam folder.');
+                      } else {
+                        alert(res.error || 'Failed to resend verification.');
+                      }
+                    }}
+                    className="underline hover:text-amber-100 font-bold px-2 py-1 rounded hover:bg-white/10 transition-all text-white border-none bg-transparent cursor-pointer"
+                  >
+                    Resend Email
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setPendingEmail(user.email);
+                      setIsVerifying(true);
+                    }}
+                    className="bg-white text-amber-700 font-bold px-3 py-1 rounded hover:bg-amber-50 transition-all shadow-sm border-none cursor-pointer"
+                  >
+                    Verify Now
+                  </button>
+                </div>
+              </div>
+            )}
             {/* Mobile header */}
             <div className="lg:hidden flex items-center justify-between p-4 bg-gradient-to-b from-slate-900 to-slate-800 border-b border-slate-700 flex-shrink-0">
               <div className="flex items-center gap-3">
@@ -158,6 +269,49 @@ export default function App() {
             activeView={activeView} 
             onViewChange={handleViewChange} 
           />
+
+          {/* Email verification dialog */}
+          {isVerifying && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">
+                <div className="flex flex-col items-center mb-6">
+                  <div className="w-14 h-14 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 mb-4">
+                    <ShieldCheck className="w-8 h-8" />
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800">Verify Your Email</h2>
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mt-4 mb-2">
+                    <p className="text-indigo-900 font-semibold text-sm mb-1">Check your inbox</p>
+                    <p className="text-indigo-700 text-xs leading-relaxed">
+                      We sent a 6-digit code to <span className="font-bold">{pendingEmail || user?.email}</span>. 
+                      It may take 1-2 minutes to arrive. Please check your spam or junk folder if you don't see it.
+                    </p>
+                  </div>
+                </div>
+                <form onSubmit={handleVerificationSubmit} className="space-y-4">
+                  {verificationError && (
+                    <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl text-sm text-center">{verificationError}</div>
+                  )}
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-slate-900"
+                    required
+                  />
+                  <button type="submit" disabled={verificationLoading || verificationCode.length !== 6}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed border-none cursor-pointer">
+                    {verificationLoading ? 'Verifying...' : 'Verify & Update'}
+                  </button>
+                  <button type="button" onClick={() => setIsVerifying(false)}
+                    className="w-full flex items-center justify-center gap-1 text-xs text-slate-400 hover:text-slate-600 bg-transparent border-none cursor-pointer">
+                    <ArrowLeft className="w-3 h-3" /> Back
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       </AppProvider>
     </SettingsProvider>
