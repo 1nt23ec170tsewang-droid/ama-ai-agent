@@ -11,6 +11,7 @@ import { API_BASE } from '../utils/config';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { storage, db } from '../utils/firebase';
+import { Avatar } from './ui/avatar';
 
 // ── Toggle switch component ─────────────────────────────────────────────────
 function Toggle({
@@ -384,16 +385,14 @@ export function SettingsView() {
               <div className="flex flex-col md:flex-row gap-6 mb-6">
                 {/* Avatar */}
                 <div className="relative -mt-20 md:-mt-16">
-                  <div className="w-28 h-28 md:w-32 md:h-32 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl border-4 border-white shadow-lg flex items-center justify-center overflow-hidden">
-                    {(isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)) ? (
-                      <img 
-                        src={isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)} 
-                        alt="Avatar"
-                        className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    ) : null}
-                    {!(isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)) && <span className="text-4xl md:text-5xl text-white font-bold">{initials}</span>}
+                  <div className="w-28 h-28 md:w-32 md:h-32 rounded-2xl border-4 border-white shadow-lg flex items-center justify-center overflow-hidden relative">
+                    <Avatar 
+                      email={authUser?.email} 
+                      name={authUser?.name} 
+                      photoURL={isEditingProfile ? draft.avatar : (authUser?.photoURL || profile.avatar)} 
+                      className="w-full h-full rounded-2xl"
+                      size="lg"
+                    />
                     {avatarUploading && (
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl">
                         <div className="w-8 h-8 border-2 border-t-transparent border-white rounded-full animate-spin"></div>

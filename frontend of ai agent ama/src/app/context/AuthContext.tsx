@@ -411,11 +411,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updatePhotoURL = useCallback(async (url: string) => {
-    if (user?.id && db) {
-      try {
-        await updateDoc(doc(db, 'users', user.id), { photoURL: url });
-      } catch (err) {
-        console.error('Failed to update photoURL in Firestore:', err);
+    if (user?.id) {
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', user.id), { photoURL: url });
+        } catch (err) {
+          console.error('Failed to update photoURL in Firestore:', err);
+        }
+      } else {
+        try {
+          await fetch(`${API_BASE}/api/auth/profile`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ name: user.name, photoURL: url })
+          });
+        } catch (err) {
+          console.error('Failed to sync photoURL to backend:', err);
+        }
       }
     }
     setUser(prev => prev ? { ...prev, photoURL: url } : prev);
@@ -437,7 +452,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await saveAuthSession(session.token, session.refreshToken, session.user, session.expiry);
       }
     } catch {}
-  }, [user?.id]);
+  }, [user?.id, token, user?.name]);
 
   const verifyEmail = async (email: string, code: string) => {
     if (auth) {
@@ -475,7 +490,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendVerification = async (email: string) => {
     if (auth) {
-      return { success: true };
+      try {
+        if (auth.currentUser) {
+          await sendEmailVerification(auth.currentUser, {
+            url: 'https://ama-frontend-8efz.onrender.com/dashboard',
+            handleCodeInApp: false
+          });
+          return { success: true };
+        }
+        return { success: false, error: 'No active user found to resend verification. Please sign in again.' };
+      } catch (err: any) {
+        console.error('Firebase resend error:', err);
+        return { success: false, error: err.message || 'Failed to resend verification.' };
+      }
     } else {
       try {
         const res = await fetch(`${API_BASE}/api/auth/resend-verification`, {

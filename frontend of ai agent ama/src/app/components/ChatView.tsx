@@ -887,24 +887,6 @@ Always provide exact values. Never use placeholder ranges.`;
                 </div>
                 <h1 className="text-lg md:text-3xl font-bold mb-1 md:mb-2" style={{ color: '#f1f5f9' }}>{greeting}</h1>
                 <p className="text-xs md:text-base mb-1" style={{ color: '#94a3b8' }}>How can I assist you today?</p>
-
-                {/* Gmail connection badge */}
-                <div className="flex justify-center mt-3">
-                  {gmailEmail ? (
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
-                      style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80' }}>
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      Gmail connected · {gmailEmail}
-                    </div>
-                  ) : (
-                    <a href="#email"
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
-                      style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8' }}
-                    >
-                      <ExternalLink className="w-3 h-3" /> Connect Gmail to send emails
-                    </a>
-                  )}
-                </div>
               </motion.div>
 
               {/* Bottom input section pushed down on mobile */}

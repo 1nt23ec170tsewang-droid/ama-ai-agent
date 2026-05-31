@@ -7,6 +7,7 @@ import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import { askClaude } from '../utils/claude';
 import type { TeamMember } from '../context/AppContext';
+import { Avatar } from './ui/avatar';
 
 const DEPARTMENTS = [
   'Engineering', 'Product', 'Design', 'Marketing', 'Sales',
@@ -175,9 +176,13 @@ Be encouraging, specific, and professional.`;
               >
                 <div className="flex items-start gap-4 mb-4">
                   <div className="relative">
-                    <div className={`w-14 h-14 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-lg ring-4 ${STATUS_RINGS[member.status]}`}>
-                      {member.avatar}
-                    </div>
+                    <Avatar 
+                      email={member.email} 
+                      name={member.name} 
+                      photoURL={member.avatar && member.avatar.startsWith('http') ? member.avatar : undefined} 
+                      size={56} 
+                      className={`ring-4 ${STATUS_RINGS[member.status]}`}
+                    />
                     <div className={`absolute bottom-0 right-0 w-4 h-4 ${STATUS_COLORS[member.status]} rounded-full border-2 border-white`} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -236,8 +241,13 @@ Be encouraging, specific, and professional.`;
             <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-t-2xl">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-2xl">
-                    {selectedMember.avatar}
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center relative">
+                    <Avatar 
+                      email={selectedMember.email} 
+                      name={selectedMember.name} 
+                      photoURL={selectedMember.avatar && selectedMember.avatar.startsWith('http') ? selectedMember.avatar : undefined} 
+                      size={64} 
+                    />
                   </div>
                   <div className="text-white">
                     <h2 className="text-2xl font-bold">{selectedMember.name}</h2>

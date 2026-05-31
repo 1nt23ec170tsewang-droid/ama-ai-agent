@@ -16,6 +16,7 @@ import { SettingsProvider } from './context/SettingsContext';
 import { QuickAskWidget } from './components/QuickAskWidget';
 import RyveLogo from './components/RyveLogo';
 import BottomNavBar from './components/BottomNavBar';
+import { Avatar } from './components/ui/avatar';
 import MoreBottomSheet from './components/MoreBottomSheet';
 import { messaging } from './utils/firebase';
 import { getToken, onMessage } from 'firebase/messaging';
@@ -231,18 +232,15 @@ export default function App() {
               </div>
               <button
                 onClick={() => handleViewChange('settings')}
-                className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm hover:from-orange-600 hover:to-orange-700 transition-colors overflow-hidden"
+                className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center hover:opacity-90 transition-opacity"
               >
-                {user?.photoURL ? (
-                  <img 
-                    src={user.photoURL} 
-                    alt="Avatar" 
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = `<span class="text-white font-semibold text-sm">${authenticatedUser.initials}</span>`; }}
-                  />
-                ) : (
-                  authenticatedUser.initials
-                )}
+                <Avatar 
+                  email={user?.email} 
+                  name={user?.name} 
+                  photoURL={user?.photoURL} 
+                  size={32} 
+                  className="rounded-lg"
+                />
               </button>
             </div>
 

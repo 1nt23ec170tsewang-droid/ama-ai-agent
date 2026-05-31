@@ -1561,11 +1561,15 @@ app.put('/api/auth/profile', authenticateToken, async (req, res, next) => {
   try {
     const name = sanitizeInput(req.body.name);
     const company = sanitizeInput(req.body.company);
-    const role = sanitizeInput(req.body.role); // Standard profile edit should only update allowed fields
+    const photoURL = req.body.photoURL ? String(req.body.photoURL) : undefined;
 
     if (!name) return res.status(400).json({ message: 'Name is required.' });
 
     const updates = { name, company, updatedAt: new Date().toISOString() };
+    if (photoURL !== undefined) {
+      updates.photoURL = photoURL;
+    }
+
     if (db) {
       await db.collection('users').doc(req.user.id).update(updates);
     } else {
@@ -2545,14 +2549,33 @@ async function getOAuthClientForUser(uid) {
 
 
 // GET /auth/gmail  — public endpoint to initiate Google OAuth consent flow directly
-app.get('/auth/gmail', (req, res, next) => {
+app.get('/auth/gmail', async (req, res, next) => {
   try {
     const uid = req.query.uid || '';
     const state = uid ? uid : Math.random().toString(36).slice(2);
+    
+    let emailHint = '';
+    if (db && uid && uid.length > 5) {
+      try {
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (userDoc.exists) {
+          emailHint = userDoc.data().email || '';
+        }
+      } catch (dbErr) {
+        console.warn('⚠️ Firestore lookup failed in /auth/gmail:', dbErr.message);
+      }
+    } else if (uid) {
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) {
+        emailHint = foundUser.email || '';
+      }
+    }
+
     const url = makeOAuth2().generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
       state,
+      ...(emailHint && { login_hint: emailHint }),
       scope: [
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.modify',
@@ -2581,6 +2604,24 @@ app.get('/auth/gmail/callback', async (req, res) => {
     console.log('✅ Gmail connected for:', data.email);
 
     const uid = state;
+    let ryveUserEmail = '';
+    if (db && uid && uid.length > 5) {
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        ryveUserEmail = userDoc.data().email || '';
+      }
+    } else if (uid) {
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) {
+        ryveUserEmail = foundUser.email || '';
+      }
+    }
+
+    if (ryveUserEmail && String(data.email).toLowerCase() !== String(ryveUserEmail).toLowerCase()) {
+      console.warn(`⚠️ Gmail email mismatch: Connected ${data.email} but registered as ${ryveUserEmail}`);
+      return res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_error=wrong_account`);
+    }
+
     if (db && uid && uid.length > 5) {
       // Look up existing tokens to preserve refresh token if missing
       let existingRefreshToken = tokens.refresh_token;
@@ -2665,6 +2706,24 @@ app.get('/api/gmail/callback', async (req, res) => {
     console.log('✅ Gmail connected for:', data.email);
 
     const uid = state;
+    let ryveUserEmail = '';
+    if (db && uid && uid.length > 5) {
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        ryveUserEmail = userDoc.data().email || '';
+      }
+    } else if (uid) {
+      const foundUser = inMemoryUsers.find(u => u.id === uid);
+      if (foundUser) {
+        ryveUserEmail = foundUser.email || '';
+      }
+    }
+
+    if (ryveUserEmail && String(data.email).toLowerCase() !== String(ryveUserEmail).toLowerCase()) {
+      console.warn(`⚠️ Gmail email mismatch: Connected ${data.email} but registered as ${ryveUserEmail}`);
+      return res.redirect(`${GMAIL_FRONTEND_URL}/dashboard?gmail_error=wrong_account`);
+    }
+
     if (db && uid && uid.length > 5) {
       // Look up existing tokens to preserve refresh token if missing
       let existingRefreshToken = tokens.refresh_token;

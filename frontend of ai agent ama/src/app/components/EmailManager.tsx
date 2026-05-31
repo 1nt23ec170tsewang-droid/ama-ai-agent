@@ -47,6 +47,7 @@ export function EmailManager() {
   const [sendingReply, setSendingReply] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [gmailConnectionError, setGmailConnectionError] = useState<string | null>(null);
 
   // ── Check for ?gmail_connected= in URL after OAuth redirect ──────────────
   useEffect(() => {
@@ -61,12 +62,17 @@ export function EmailManager() {
       const decoded = decodeURIComponent(gEmail);
       localStorage.setItem('ama_gmail_email', decoded);
       setGmailEmail(decoded);
+      setGmailConnectionError(null);
       // showToast(`Gmail connected: ${decoded}`, 'success');
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
     }
     if (gError) {
-      // showToast(`Gmail error: ${decodeURIComponent(gError)}`, 'error');
+      if (gError === 'wrong_account') {
+        setGmailConnectionError('wrong_account');
+      } else {
+        setGmailConnectionError(decodeURIComponent(gError));
+      }
       window.history.replaceState({}, '', window.location.pathname);
     }
 
@@ -179,7 +185,7 @@ export function EmailManager() {
   // ── Start Gmail OAuth ────────────────────────────────────────────────────
   const handleConnectGmail = () => {
     console.log('Initiating Gmail OAuth via direct backend redirect.');
-    window.location.href = `${API}/auth/gmail`;
+    window.location.href = `${API}/auth/gmail?uid=${user?.id}`;
   };
 
   const handleDisconnect = async () => {
@@ -333,6 +339,25 @@ export function EmailManager() {
           <p className="text-slate-500 text-sm mb-6">
             Connect your Gmail account to view your real inbox, read emails, and send AI-powered replies — all inside Ryve.
           </p>
+
+          {gmailConnectionError === 'wrong_account' && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-left">
+              <p className="text-amber-800 text-sm font-medium mb-1">Account Mismatch</p>
+              <p className="text-amber-700 text-xs leading-relaxed">
+                Please connect the same Gmail account you used to sign in to Ryve ({user?.email || 'your registered email'}). Click below to try again.
+              </p>
+            </div>
+          )}
+
+          {gmailConnectionError && gmailConnectionError !== 'wrong_account' && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-left">
+              <p className="text-red-800 text-sm font-medium mb-1">Connection Failed</p>
+              <p className="text-red-700 text-xs leading-relaxed">
+                {gmailConnectionError}
+              </p>
+            </div>
+          )}
+
           <button
             id="connect-gmail-btn"
             onClick={handleConnectGmail}

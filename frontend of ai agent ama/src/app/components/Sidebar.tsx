@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useApp } from '../context/AppContext';
 import { useSettings } from '../context/SettingsContext';
 import { useState, useEffect } from 'react';
+import { Avatar } from './ui/avatar';
 
 interface SidebarProps {
   activeView: string;
@@ -247,20 +248,13 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           onClick={() => onViewChange('settings')}
           className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-slate-700/50 transition-colors"
         >
-          <div 
-            className="w-9 h-9 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 overflow-hidden"
-          >
-            {(user?.photoURL || profile?.avatar) ? (
-              <img 
-                src={user?.photoURL || profile?.avatar} 
-                alt="Avatar" 
-                className="w-full h-full object-cover"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling && ((e.target as HTMLImageElement).parentElement!.innerHTML = `<span class="text-white font-semibold text-sm">${initials}</span>`); }}
-              />
-            ) : (
-              <span>{initials}</span>
-            )}
-          </div>
+          <Avatar 
+            email={email} 
+            name={name} 
+            photoURL={user?.photoURL || profile?.avatar} 
+            size={36} 
+            className="rounded-lg"
+          />
           <div className="flex-1 text-left min-w-0">
             <p className="text-sm font-medium text-white truncate">{name}</p>
             <p className="text-xs text-slate-400 truncate">{email}</p>
