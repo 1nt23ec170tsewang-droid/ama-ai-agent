@@ -424,7 +424,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {})
+              ...(tokenState ? { Authorization: `Bearer ${tokenState}` } : {})
             },
             body: JSON.stringify({ name: user.name, photoURL: url })
           });
@@ -452,7 +452,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await saveAuthSession(session.token, session.refreshToken, session.user, session.expiry);
       }
     } catch {}
-  }, [user?.id, token, user?.name]);
+  }, [user?.id, tokenState, user?.name]);
 
   const verifyEmail = async (email: string, code: string) => {
     if (auth) {
