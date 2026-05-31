@@ -748,7 +748,7 @@ Always provide exact values. Never use placeholder ranges.`;
           width: 260px; background: #09051d; border-right: 1px solid rgba(255,255,255,0.07);
           display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; z-index: 200;
         }
-        .chat-history-sidebar.desktop { position: relative; height: 100%; }
+        .chat-history-sidebar.desktop { display: none; }
         .chat-history-sidebar.mobile {
           position: fixed; top: 0; left: 0; bottom: 0; width: 280px; max-width: 85vw;
           transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); box-shadow: none;
@@ -845,7 +845,7 @@ Always provide exact values. Never use placeholder ranges.`;
               <Menu className="w-4.5 h-4.5" />
               <span>History</span>
             </button>
-            <span style={{ fontFamily: "'Inter', serif", fontSize: 16, fontWeight: 700, color: '#818cf8' }}>Ama</span>
+            <div style={{ flex: 1 }}></div> {/* Spacer to keep buttons at edges */}
             <button onClick={startNewChat} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, color: '#818cf8', fontSize: 11, fontWeight: 600, padding: '6px 10px', cursor: 'pointer' }}>+ New</button>
           </div>
         )}
