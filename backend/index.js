@@ -1611,11 +1611,6 @@ app.post('/api/briefing/generate', authenticateToken, async (req, res) => {
       }
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('ANTHROPIC_API_KEY is not configured in environment.');
-      return res.status(503).json({ error: 'AI unavailable' });
-    }
-
     const prompt = `You are Ryve, an executive AI Chief of Staff. Generate a structured morning briefing for ${user.name}${user.company ? `, ${user.role || 'Executive'} at ${user.company}` : ''}.
 
 Date: ${todayKey}
@@ -1635,31 +1630,9 @@ Return ONLY the valid JSON object. Do not include markdown code block formatting
 
     let textResponse = '';
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1024,
-          messages: [
-            { role: 'user', content: prompt }
-          ]
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Claude API error ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      textResponse = data.content?.[0]?.text || '';
+      textResponse = await askAI(prompt, 'You are Ryve, an elite AI Chief of Staff. Generate sharp, executive-level strategic briefings. Be concise, direct, and actionable. Never use placeholder text. Never say you cannot generate content. Always return valid JSON.');
     } catch (aiErr) {
-      console.error('Failed to fetch from Anthropic Claude API:', aiErr);
+      console.error('Failed to generate briefing via OpenRouter/AI:', aiErr);
       return res.status(503).json({ error: 'AI unavailable' });
     }
 
@@ -2455,18 +2428,35 @@ function parseGmailMessage(msg) {
   const fromName  = (m[1] || from).replace(/"/g, '').trim();
   const fromEmail = (m[2] || from).trim();
 
-  let body = '';
+  let htmlBody = '';
+  let textBody = '';
+
   const extract = (part) => {
     if (!part) return;
-    if (part.mimeType === 'text/plain' && part.body?.data)
-      body = Buffer.from(part.body.data, 'base64').toString('utf-8');
-    else if (part.parts) part.parts.forEach(extract);
+    if (part.mimeType === 'text/html' && part.body?.data && !htmlBody) {
+      htmlBody = Buffer.from(part.body.data, 'base64').toString('utf-8');
+    } else if (part.mimeType === 'text/plain' && part.body?.data && !textBody) {
+      textBody = Buffer.from(part.body.data, 'base64').toString('utf-8');
+    }
+    if (part.parts) part.parts.forEach(extract);
   };
   extract(msg.payload);
-  if (!body && msg.payload?.body?.data)
-    body = Buffer.from(msg.payload.body.data, 'base64').toString('utf-8');
 
-  const preview = body.replace(/\s+/g, ' ').slice(0, 130) + (body.length > 130 ? '…' : '');
+  // Fallback: top-level body (single-part messages)
+  if (!htmlBody && !textBody && msg.payload?.body?.data) {
+    const decoded = Buffer.from(msg.payload.body.data, 'base64').toString('utf-8');
+    if (msg.payload?.mimeType === 'text/html') {
+      htmlBody = decoded;
+    } else {
+      textBody = decoded;
+    }
+  }
+
+  // Prefer HTML, fall back to plain text
+  const body = htmlBody || textBody || '';
+  const mimeType = htmlBody ? 'text/html' : 'text/plain';
+
+  const preview = (textBody || htmlBody.replace(/<[^>]+>/g, '') || '').replace(/\s+/g, ' ').trim().slice(0, 130) + (body.length > 130 ? '…' : '');
   const labels  = msg.labelIds || [];
   const isRead  = !labels.includes('UNREAD');
 
@@ -2487,6 +2477,7 @@ function parseGmailMessage(msg) {
     subject:        hdr('Subject') || '(no subject)',
     preview,
     body,
+    mimeType,
     time:           timeLabel,
     date:           msgDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     isRead,

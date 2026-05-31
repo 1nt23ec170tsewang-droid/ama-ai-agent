@@ -284,6 +284,7 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const [userScrolled, setUserScrolled] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -326,6 +327,41 @@ export function ChatView({ sidebarOpen, onCloseSidebar }: { sidebarOpen?: boolea
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
   }, [input]);
+
+  // Mobile detection
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile) setHistoryOpen(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Swipe gesture for mobile sidebar
+  useEffect(() => {
+    if (!isMobile) return;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      const deltaX = e.changedTouches[0].clientX - touchStartX;
+      const deltaY = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(deltaX) < Math.abs(deltaY) || Math.abs(deltaX) < 50) return;
+      if (deltaX > 0 && touchStartX < 30 && !historyOpen) setHistoryOpen(true);
+      if (deltaX < 0 && historyOpen) setHistoryOpen(false);
+    };
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [isMobile, historyOpen]);
 
   // ── Smart auto-scroll ────────────────────────────────────────────────────
   const scrollToBottom = useCallback((force = false) => {
@@ -665,6 +701,27 @@ Always provide exact values. Never use placeholder ranges.`;
     return () => window.removeEventListener('select_chat_session', handle);
   }, []);
 
+  const handleChatSelect = (sessionId: string) => {
+    setActiveSessionId(sessionId);
+    if (isMobile) setHistoryOpen(false);
+  };
+
+  const startNewChat = () => {
+    setActiveSessionId(null);
+    if (isMobile) setHistoryOpen(false);
+  };
+
+  const formatChatDate = (lastUpdated: any) => {
+    if (!lastUpdated) return '';
+    const date = typeof lastUpdated === 'string' ? new Date(lastUpdated) : lastUpdated.toDate ? lastUpdated.toDate() : new Date(lastUpdated);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return 'Today';
+    if (diff < 172800000) return 'Yesterday';
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+
   const handleSend = () => sendMessage(input, selectedFiles);
   const handleChipClick = (chip: typeof SUGGESTION_CHIPS[0]) => sendMessage(chip.prompt);
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -680,13 +737,32 @@ Always provide exact values. Never use placeholder ranges.`;
       style={{ background: '#030014', fontFamily: "'Inter', system-ui, sans-serif" }}
     >
       <style>{`
-        .scrollbar-none::-webkit-scrollbar {
-          display: none;
+        .scrollbar-none::-webkit-scrollbar { display: none; }
+        .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+        .chat-sidebar-overlay {
+          position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 199;
+          backdrop-filter: blur(2px); animation: sidebarFadeIn 0.2s ease;
         }
-        .scrollbar-none {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        @keyframes sidebarFadeIn { from { opacity: 0 } to { opacity: 1 } }
+        .chat-history-sidebar {
+          width: 260px; background: #09051d; border-right: 1px solid rgba(255,255,255,0.07);
+          display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; z-index: 200;
         }
+        .chat-history-sidebar.desktop { position: relative; height: 100%; }
+        .chat-history-sidebar.mobile {
+          position: fixed; top: 0; left: 0; bottom: 0; width: 280px; max-width: 85vw;
+          transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); box-shadow: none;
+        }
+        .chat-history-sidebar.mobile.open { transform: translateX(0); box-shadow: 8px 0 32px rgba(0,0,0,0.6); }
+        .chat-history-list { flex: 1; overflow-y: auto; padding: 8px; scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.2) transparent; }
+        .chat-history-list::-webkit-scrollbar { width: 3px; }
+        .chat-history-list::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.2); border-radius: 2px; }
+        .chat-history-item { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s; margin-bottom: 2px; }
+        .chat-history-item:hover { background: rgba(255,255,255,0.05); }
+        .chat-history-item.active { background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.25); }
+        .chat-history-item .delete-btn { opacity: 0; background: none; border: none; color: #64748b; font-size: 12px; cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.15s; flex-shrink: 0; }
+        .chat-history-item:hover .delete-btn { opacity: 1; }
+        .chat-history-item .delete-btn:hover { color: #f87171; background: rgba(239,68,68,0.1); }
 
         @media (max-width: 767px) {
           .mobile-sub-header {
@@ -715,8 +791,64 @@ Always provide exact values. Never use placeholder ranges.`;
           }
         }
       `}</style>
+
+      {/* ── Overlay (mobile only) ──────────────────────────────────── */}
+      {isMobile && historyOpen && (
+        <div className="chat-sidebar-overlay" onClick={() => setHistoryOpen(false)} />
+      )}
+
+      {/* ── Chat History Sidebar ───────────────────────────────────── */}
+      <aside className={`chat-history-sidebar ${isMobile ? 'mobile' : 'desktop'} ${historyOpen ? 'open' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+          <span style={{ fontFamily: "'Inter', monospace", fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px' }}>Chat History</span>
+          {isMobile && (
+            <button onClick={() => setHistoryOpen(false)} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.06)', border: 'none', color: '#64748b', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          )}
+        </div>
+        <button onClick={startNewChat} style={{ margin: '12px', padding: '10px 14px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, color: '#818cf8', fontFamily: "'Inter', monospace", fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' as const, flexShrink: 0 }}>
+          <Plus className="w-3.5 h-3.5 inline mr-1.5" style={{ verticalAlign: 'middle' }} />New Chat
+        </button>
+        <div className="chat-history-list">
+          {sessions.length === 0 ? (
+            <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+              <MessageSquare className="w-8 h-8 mx-auto mb-3" style={{ color: '#1e1b4b' }} />
+              <p style={{ fontSize: 14, color: '#94a3b8', marginBottom: 6 }}>No previous chats</p>
+              <span style={{ fontSize: 11, color: '#334155' }}>Start a conversation with Ama</span>
+            </div>
+          ) : (
+            sessions.map(chat => (
+              <div key={chat.id} className={`chat-history-item ${activeSessionId === chat.id ? 'active' : ''}`} onClick={() => handleChatSelect(chat.id)}>
+                <div style={{ width: 30, height: 30, borderRadius: 6, background: activeSessionId === chat.id ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.08)', color: '#818cf8', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✦</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, color: activeSessionId === chat.id ? '#a5b4fc' : '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: '0 0 2px', lineHeight: '1.4' }}>{chat.title || 'New conversation'}</p>
+                  <span style={{ fontSize: 10, color: '#475569' }}>{formatChatDate((chat as any).lastUpdated)}</span>
+                </div>
+                <button className="delete-btn" onClick={(e) => deleteSession(e, chat.id)} aria-label="Delete chat">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        {sessions.length > 0 && (
+          <button onClick={clearAllSessions} style={{ margin: '8px 12px 12px', padding: '8px', background: 'none', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, color: '#64748b', fontSize: 10, cursor: 'pointer', textAlign: 'center' as const }}>Clear all chats</button>
+        )}
+      </aside>
+
       {/* ── Main Chat Area ────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full relative min-w-0">
+
+        {/* Mobile top bar */}
+        {isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#09051d', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, height: 52 }}>
+            <button onClick={() => setHistoryOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: '#64748b', fontSize: 11, cursor: 'pointer', padding: '6px 8px', borderRadius: 6 }} aria-label="Open chat history">
+              <Menu className="w-4.5 h-4.5" />
+              <span>History</span>
+            </button>
+            <span style={{ fontFamily: "'Inter', serif", fontSize: 16, fontWeight: 700, color: '#818cf8' }}>Ama</span>
+            <button onClick={startNewChat} style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, color: '#818cf8', fontSize: 11, fontWeight: 600, padding: '6px 10px', cursor: 'pointer' }}>+ New</button>
+          </div>
+        )}
 
         {/* ── Sleek Top Header with Visual Separator ────────────────── */}
         <div

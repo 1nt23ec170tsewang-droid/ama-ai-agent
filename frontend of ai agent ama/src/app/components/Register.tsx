@@ -176,7 +176,13 @@ export default function Register() {
             <div className="flex flex-col items-center mb-6">
               <div className="w-14 h-14 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 mb-4"><ShieldCheck className="w-8 h-8" /></div>
               <h2 className="text-xl font-bold text-slate-800">Verify Your Email</h2>
-              <p className="text-slate-500 text-sm mt-2 text-center">We sent a 6-digit code to <span className="text-indigo-600 font-medium">{pendingEmail || email}</span>.</p>
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mt-4 mb-2">
+                <p className="text-indigo-900 font-semibold text-sm mb-1">Check your inbox</p>
+                <p className="text-indigo-700 text-xs leading-relaxed">
+                  We sent a 6-digit code to <span className="font-bold">{pendingEmail || email}</span>. 
+                  It may take 1-2 minutes to arrive. Please check your spam or junk folder if you don't see it.
+                </p>
+              </div>
             </div>
             <form onSubmit={handleVerificationSubmit} className="space-y-4">
               {verificationError && <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl text-sm text-center">{verificationError}</div>}

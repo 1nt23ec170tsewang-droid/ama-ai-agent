@@ -5,6 +5,7 @@ import {
   AlertCircle, Inbox,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import DOMPurify from 'dompurify';
 
 import { API_BASE as API } from '../utils/config';
 
@@ -16,6 +17,7 @@ interface GmailMessage {
   subject: string;
   preview: string;
   body: string;
+  mimeType?: string;
   time: string;
   date: string;
   isRead: boolean;
@@ -42,6 +44,7 @@ export function EmailManager() {
   const [showReply, setShowReply] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   // ── Check for ?gmail_connected= in URL after OAuth redirect ──────────────
   useEffect(() => {
@@ -71,6 +74,12 @@ export function EmailManager() {
     if (storedEmail && !gEmail) {
       setGmailEmail(storedEmail);
     }
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // ── Fetch inbox ──────────────────────────────────────────────────────────
@@ -285,9 +294,16 @@ export function EmailManager() {
   // ── CONNECTED — INBOX VIEW ──────────────────────────────────────────────
   return (
     <div className="flex h-full bg-white overflow-hidden">
+      <style>{`
+        .email-body-html { overflow-x: auto; word-break: break-word; }
+        .email-body-html * { max-width: 100% !important; box-sizing: border-box; }
+        .email-body-html a { color: #ea580c !important; text-decoration: underline; }
+        .email-body-html img { max-width: 100% !important; height: auto !important; }
+        .email-body-html table { border-collapse: collapse; width: 100%; overflow-x: auto; display: block; }
+      `}</style>
 
       {/* ── Email list panel ── */}
-      <div className="w-72 md:w-80 xl:w-96 border-r border-slate-200 flex flex-col flex-shrink-0">
+      <div className={`${isMobile && selected ? 'hidden' : ''} ${isMobile ? 'w-full' : 'w-72 md:w-80 xl:w-96'} border-r border-slate-200 flex flex-col flex-shrink-0`}>
 
         {/* Connection header */}
         <div className="p-4 border-b border-slate-200">
@@ -374,6 +390,7 @@ export function EmailManager() {
                   setShowReply(false);
                   setDraftReply('');
                   markRead(email);
+                  if (window.innerWidth <= 768) window.scrollTo(0, 0);
                 }}
                 className={`p-3 border-b border-slate-100 cursor-pointer transition-colors ${
                   selected?.id === email.id ? 'bg-orange-50 border-l-2 border-l-orange-500' : 'hover:bg-slate-50'
@@ -410,9 +427,18 @@ export function EmailManager() {
       </div>
 
       {/* ── Email detail pane ── */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className={`${isMobile && !selected ? 'hidden' : ''} flex-1 flex flex-col overflow-hidden min-w-0`}>
         {selected ? (
           <>
+            {/* Mobile back button */}
+            {isMobile && (
+              <button
+                onClick={() => setSelected(null)}
+                className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-orange-600 hover:bg-orange-50 border-b border-slate-200 transition-colors w-full"
+              >
+                <span>←</span> Back to inbox
+              </button>
+            )}
             {/* Header + actions */}
             <div className="p-5 border-b border-slate-200 flex-shrink-0">
               <h3 className="text-lg font-semibold text-slate-900 mb-3 break-words">{selected.subject}</h3>
@@ -474,9 +500,20 @@ export function EmailManager() {
 
             {/* Body + reply */}
             <div className="flex-1 overflow-y-auto p-5">
-              <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap break-words">
-                {selected.body || selected.preview || '(no content)'}
-              </div>
+              {(selected.mimeType === 'text/html' || (selected.body && selected.body.includes('<') && selected.body.includes('>'))) ? (
+                <div
+                  className="email-body-html bg-white border border-slate-200 rounded-xl p-5 mb-6 text-sm text-slate-800 leading-relaxed break-words"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selected.body || '', {
+                    ALLOWED_TAGS: ['p','br','div','span','a','img','h1','h2','h3','h4','h5','h6','ul','ol','li','table','tr','td','th','thead','tbody','strong','em','b','i','u','blockquote','pre','code','hr','section','article','header','footer','main','nav','figure','figcaption'],
+                    ALLOWED_ATTR: ['href','src','alt','style','class','id','target','rel','width','height','colspan','rowspan','align','valign'],
+                    ALLOW_DATA_ATTR: false,
+                  }) }}
+                />
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap break-words">
+                  {selected.body || selected.preview || '(no content)'}
+                </div>
+              )}
 
               {showReply && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
