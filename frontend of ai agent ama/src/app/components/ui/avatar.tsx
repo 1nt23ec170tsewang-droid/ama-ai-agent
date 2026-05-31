@@ -26,12 +26,16 @@ export function Avatar({ email, name, photoURL, className = '', size = 'md' }: A
   // Derive initials
   const getInitials = () => {
     const displayName = isCurrentUser ? (user?.name || name || email || '') : (name || email || '');
-    if (!displayName) return 'R';
-    const parts = displayName.trim().split(/\s+/);
-    if (parts.length >= 2) {
+    const clean = displayName.trim();
+    if (!clean) return 'R';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2 && parts[0] && parts[0][0] && parts[1] && parts[1][0]) {
       return (parts[0][0] + parts[1][0]).toUpperCase();
     }
-    return parts[0][0].toUpperCase();
+    if (parts[0] && parts[0][0]) {
+      return parts[0][0].toUpperCase();
+    }
+    return 'R';
   };
 
   // Derive size styling

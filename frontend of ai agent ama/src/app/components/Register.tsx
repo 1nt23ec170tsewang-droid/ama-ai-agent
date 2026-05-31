@@ -145,7 +145,7 @@ export default function Register() {
   };
 
   const handlePostLoginRedirect = (userEmail: string) => {
-    if (userEmail.toLowerCase().endsWith('@gmail.com')) {
+    if (userEmail && userEmail.toLowerCase().endsWith('@gmail.com')) {
       const token = localStorage.getItem('authToken');
       fetch(`${API_BASE}/api/gmail/status?email=${encodeURIComponent(userEmail)}`, {
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
