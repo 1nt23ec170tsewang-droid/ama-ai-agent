@@ -17,6 +17,13 @@
   background-color: #0b0d1a !important;
 }
 
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  background: #0d0f1a;
+  min-height: 100vh;
+}
+
 /* Card fills and default borders in dark mode */
 .dark .border,
 .dark .border-slate-100,

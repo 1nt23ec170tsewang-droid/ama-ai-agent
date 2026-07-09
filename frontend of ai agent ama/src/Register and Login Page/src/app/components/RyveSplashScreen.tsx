@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';  // ✅ added useLocation
 import RyveLogo from './RyveLogo';
 
 export default function RyveSplashScreen() {
   const [progress, setProgress] = useState(0);
   const [fade, setFade] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();  // ✅ added
 
   useEffect(() => {
+    // ✅ If refreshing on any page other than "/", skip splash
+    if (location.pathname !== '/') {
+      navigate(location.pathname, { replace: true });
+      return;
+    }
+
     // Animate progress bar
     const interval = setInterval(() => {
       setProgress(prev => {
@@ -22,7 +29,7 @@ export default function RyveSplashScreen() {
     // Fade out trigger
     const fadeTimer = setTimeout(() => setFade(true), 1400);
 
-    // ✅ Navigate to onboarding AFTER fade completes (fade is 0.4s = 400ms)
+    // Navigate to onboarding AFTER fade completes (fade is 0.4s = 400ms)
     const navTimer = setTimeout(() => {
       navigate('/onboarding');
     }, 1800);
@@ -32,7 +39,7 @@ export default function RyveSplashScreen() {
       clearTimeout(fadeTimer);
       clearTimeout(navTimer);
     };
-  }, [navigate]);
+  }, [navigate, location]);  // ✅ added location to deps
 
   return (
     <div
@@ -46,7 +53,8 @@ export default function RyveSplashScreen() {
         justifyContent: 'center',
         gap: '24px',
         transition: 'opacity 0.4s ease',
-        opacity: fade ? 0 : 1,
+opacity: fade ? 0 : 1,
+pointerEvents: fade ? 'none' : 'auto',
         overflow: 'hidden',
         position: 'relative',
       }}

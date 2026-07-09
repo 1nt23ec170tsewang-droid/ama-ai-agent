@@ -8,12 +8,12 @@ import App from "./app/App";
 import Login from "./app/components/Login";
 import Register from "./app/components/Register";
 import ResetPassword from "./app/components/ResetPassword";
-import LandingPage from "./app/components/LandingPage";
 import RyveLogo from "./app/components/RyveLogo";
 import { AuthProvider, useAuth } from "./app/context/AuthContext";
 import { ToastProvider } from "./app/context/ToastContext";
 import RyveSplashScreen from "./app/components/RyveSplashScreen";
 import OAuthCallback from "./app/components/OAuthCallback";
+import OnboardingSlider from "./app/components/ui/OnboardingSlider";
 
 // ── Global Error Boundary — prevents blank page on unhandled React errors ──────
 class ErrorBoundary extends React.Component<
@@ -110,7 +110,8 @@ function RootRedirect() {
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
-  return <LandingPage />;
+  
+  return <OnboardingSlider />;
 }
 
 interface ProtectedRouteProps {
